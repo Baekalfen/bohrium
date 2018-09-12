@@ -47,5 +47,8 @@ namespace jitk {
 std::vector<LoopB> get_kernel_list(const std::vector<bh_instruction*> &instr_list, const ConfigParser &config,
                                    FuseCache &fcache, Statistics &stat, bool avoid_rank0_sweep, bool monolithic);
 
+
+std::vector<Block> get_block_list(const std::vector<bh_instruction*> &instr_list, const ConfigParser &config,
+                                  FuseCache &fcache, Statistics &stat, bool avoid_rank0_sweep);
 } // jitk
 } // bohrium

@@ -97,3 +97,6 @@ GTAGS
 GRTAGS
 GPATH
 GSYMS
+
+.DS_Store
+._.DS_Store

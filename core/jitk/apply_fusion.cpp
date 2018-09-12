@@ -173,6 +173,8 @@ vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_coun
     }
     return ret;
 }
+}
+
 
 // Help functions that create a list of block nest (each nest starting a rank 0) based on `instr_list`
 // 'avoid_rank0_sweep' will avoid fusion of sweeped and non-sweeped blocks at the root level
@@ -225,8 +227,6 @@ vector<Block> get_block_list(const vector<bh_instruction*> &instr_list, const Co
     #endif
     return block_list;
 }
-}
-
 
 vector<LoopB> get_kernel_list(const vector<bh_instruction*> &instr_list, const ConfigParser &config,
                               FuseCache &fcache, Statistics &stat, bool avoid_rank0_sweep, bool monolithic) {
@@ -237,6 +237,7 @@ vector<LoopB> get_kernel_list(const vector<bh_instruction*> &instr_list, const C
     }
 
     vector<Block> block_list = get_block_list(instr_list, config, fcache, stat, avoid_rank0_sweep);
+    /* cout << block_list << endl; */
 
     vector<LoopB> ret;
     if (avoid_rank0_sweep) {

@@ -152,6 +152,11 @@ pair<uint32_t, uint32_t> work_ranges(uint64_t work_group_size, int64_t block_siz
 }
 
 pair<tuple<uint32_t, uint32_t, uint32_t>, tuple<uint32_t, uint32_t, uint32_t> >
+EngineCUDA::NDRanges(const jitk::LoopB block) const {
+    throw runtime_error("NDRanges: Not implemented!");
+}
+
+pair<tuple<uint32_t, uint32_t, uint32_t>, tuple<uint32_t, uint32_t, uint32_t> >
 EngineCUDA::NDRanges(const vector<uint64_t> &thread_stack) const {
     const auto &b = thread_stack;
     switch (b.size()) {
@@ -272,6 +277,7 @@ void EngineCUDA::writeKernel(const jitk::LoopB &kernel,
 void EngineCUDA::execute(const jitk::SymbolTable &symbols,
                          const std::string &source,
                          uint64_t codegen_hash,
+                         const jitk::LoopB block,
                          const vector<uint64_t> &thread_stack,
                          const vector<const bh_instruction *> &constants) {
     uint64_t hash = util::hash(source);

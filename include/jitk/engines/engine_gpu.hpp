@@ -82,6 +82,7 @@ public:
     virtual void execute(const SymbolTable &symbols,
                          const std::string &source,
                          uint64_t codegen_hash,
+                         const jitk::LoopB block,
                          const std::vector<uint64_t> &thread_stack,
                          const std::vector<const bh_instruction *> &constants) = 0;
 
@@ -159,7 +160,7 @@ public:
             } else {
                 // Let's execute the kernel
                 if (kernel_is_computing) {
-                    executeKernel(kernel, symbols, thread_stack);
+                    executeKernel(kernel, symbols, thread_stack, kernel);
                 }
 
                 // Let's copy sync'ed arrays back to the host
@@ -251,8 +252,10 @@ private:
 
     void executeKernel(const LoopB &kernel,
                        const SymbolTable &symbols,
-                       const std::vector<uint64_t> &thread_stack) {
+                       const std::vector<uint64_t> &thread_stack,
+                       const jitk::LoopB block) {
         using namespace std;
+
         // We need a memory buffer on the device for each non-temporary array in the kernel
         const vector<bh_base *> &v = symbols.getParams();
         copyToDevice(set<bh_base *>(v.begin(), v.end()));
@@ -276,14 +279,14 @@ private:
                     assert(1 == 2);
                 }
             #endif
-            execute(symbols, lookup.first, lookup.second, thread_stack, constants);
+            execute(symbols, lookup.first, lookup.second, block, thread_stack, constants);
         } else {
             const auto tcodegen = chrono::steady_clock::now();
             stringstream ss;
             writeKernel(kernel, symbols, thread_stack, lookup.second, ss);
             string source = ss.str();
             stat.time_codegen += chrono::steady_clock::now() - tcodegen;
-            execute(symbols, source, lookup.second, thread_stack, constants);
+            execute(symbols, source, lookup.second, block, thread_stack, constants);
             codegen_cache.insert(std::move(source), kernel, symbols);
         }
     }

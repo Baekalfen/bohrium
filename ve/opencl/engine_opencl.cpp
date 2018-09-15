@@ -233,28 +233,55 @@ pair<uint32_t, uint32_t> work_ranges(uint64_t work_group_size, int64_t block_siz
 }
 
 pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const jitk::LoopB block) const {
-    /* const auto &b = thread_stack; */
-    /* switch (b.size()) { */
-        /* case 1: { */
-        /*     const auto gsize_and_lsize = work_ranges(work_group_size_1dx, b[0]); */
-        /*     return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second)); */
-        /* } */
-        /* case 2: { */
-        /*     const auto gsize_and_lsize_x = work_ranges(work_group_size_2dx, b[0]); */
-        /*     const auto gsize_and_lsize_y = work_ranges(work_group_size_2dy, b[1]); */
-        /*     return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first), */
-        /*                      cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second)); */
-        /* } */
-        /* case 3: { */
-        /*     const auto gsize_and_lsize_x = work_ranges(work_group_size_3dx, b[0]); */
-        /*     const auto gsize_and_lsize_y = work_ranges(work_group_size_3dy, b[1]); */
-        /*     const auto gsize_and_lsize_z = work_ranges(work_group_size_3dz, b[2]); */
-        /*     return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first), */
-        /*                      cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second)); */
-        /* } */
-        /* default: */
-    throw runtime_error("NDRanges: Not implemented!");
-    /* } */
+    std::vector<uint64_t> thread_stack;
+    uint64_t num_threads = 0; // comp.config.defaultGet<uint64_t>("num_threads", 0)
+    if (block._block_list.size() == 1) {
+        pair<uint64_t, uint64_t> pair_ranks = parallel_ranks(block._block_list[0].getLoop());
+        /* cout << "ranks: " << pair_ranks.first << " " << pair_ranks.second << endl; */
+        uint64_t nranks = pair_ranks.first;
+        if (num_threads > 0 and nranks > 0) {
+            uint64_t nthds = static_cast<uint64_t>(block.size);
+            if (nthds > num_threads) {
+                nthds = num_threads;
+            }
+            thread_stack.push_back(nthds);
+        } else {
+            auto first_block_list = get_first_loop_blocks(block._block_list[0].getLoop());
+            for (uint64_t i = 0; i < nranks; ++i) {
+                thread_stack.push_back(first_block_list[i]->size);
+            }
+        }
+    }
+
+
+    /* cout << "LOOKKADOASKOSDF " << comp.config.defaultGet<cl_ulong>("custom_thingy", 123) << endl; */
+    const auto &b = thread_stack;
+    cout << "Block to analyze: " << b.size() << endl << block;
+    cout << b.size() << ": " << b[0] << " " << b[1] << " " << b[2] << " " << endl;
+    cout << "KERNEL12345XXX"<<endl;
+
+    int dims = b.size();
+    switch (dims) {
+        case 1: {
+            const auto gsize_and_lsize = work_ranges(work_group_size_1dx, b[0]);
+            return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
+        }
+        case 2: {
+            const auto gsize_and_lsize_x = work_ranges(work_group_size_2dx, b[0]);
+            const auto gsize_and_lsize_y = work_ranges(work_group_size_2dy, b[1]);
+            return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first),
+                             cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second));
+        }
+        case 3: {
+            const auto gsize_and_lsize_x = work_ranges(work_group_size_3dx, b[0]);
+            const auto gsize_and_lsize_y = work_ranges(work_group_size_3dy, b[1]);
+            const auto gsize_and_lsize_z = work_ranges(work_group_size_3dz, b[2]);
+            return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first),
+                             cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
+        }
+        default:
+            throw runtime_error("NDRanges: maximum of three dimensions!");
+    }
 }
 
 pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &thread_stack) const {
@@ -424,16 +451,14 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
         }
     }
 
-    cout << "new block" << endl << block << endl;
-
     const auto ranges = NDRanges(block);
     /* const auto ranges = NDRanges(thread_stack); */
     auto start_exec = chrono::steady_clock::now();
-    /* auto f = ranges.first; */
-    /* auto s = ranges.second */
-    /* std::cout */
-    /*     << f.dimensions() << " " << f[0] << " " << f[1] << " " << f[2] << std::endl */
-    /*     << f.dimensions() << " " << s[0] << " " << s[1] << " " << s[2] << std::endl; */
+    auto f = ranges.first;
+    auto s = ranges.second;
+    std::cout << "Kernel params:" << std::endl
+        << "Total work: " << f.dimensions() << " " << f[0] << " " << f[1] << " " << f[2] << std::endl
+        << "Work group: " << f.dimensions() << " " << s[0] << " " << s[1] << " " << s[2] << std::endl << std::endl;
     queue.enqueueNDRangeKernel(opencl_kernel, cl::NullRange, ranges.first, ranges.second);
     queue.finish();
     auto texec = chrono::steady_clock::now() - start_exec;

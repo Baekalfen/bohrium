@@ -155,7 +155,7 @@ pair<uint32_t, uint32_t> work_ranges(uint64_t work_group_size, int64_t block_siz
 }
 
 pair<tuple<uint32_t, uint32_t, uint32_t>, tuple<uint32_t, uint32_t, uint32_t> >
-EngineCUDA::NDRanges(const jitk::LoopB block) const {
+EngineCUDA::NDRanges(const jitk::LoopB block, uint64_t hash) const {
     throw runtime_error("NDRanges: Not implemented!");
 }
 

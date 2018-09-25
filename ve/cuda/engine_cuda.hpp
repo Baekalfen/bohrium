@@ -79,9 +79,9 @@ private:
 
     // Returns the block and thread sizes based on the 'threaded_blocks'
     std::pair<std::tuple<uint32_t, uint32_t, uint32_t>, std::tuple<uint32_t, uint32_t, uint32_t>>
-        NDRanges(const std::vector<uint64_t> &thread_stack) const;
+        NDRanges(const jitk::LoopB block, uint64_t hash) const;
     std::pair<std::tuple<uint32_t, uint32_t, uint32_t>, std::tuple<uint32_t, uint32_t, uint32_t>>
-        NDRanges(const jitk::LoopB block) const;
+        NDRanges(const std::vector<uint64_t> &thread_stack) const;
 
     // Return a kernel function based on the given 'source'
     CUfunction getFunction(const std::string &source, const std::string &func_name);

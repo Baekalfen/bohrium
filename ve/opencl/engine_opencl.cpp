@@ -232,7 +232,7 @@ pair<uint32_t, uint32_t> work_ranges(uint64_t work_group_size, int64_t block_siz
 }
 }
 
-pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const jitk::LoopB block) const {
+pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const jitk::LoopB block, uint64_t hash) const {
     std::vector<uint64_t> thread_stack;
     uint64_t num_threads = 0; // comp.config.defaultGet<uint64_t>("num_threads", 0)
     if (block._block_list.size() == 1) {
@@ -253,6 +253,16 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const jitk::LoopB block) c
         }
     }
 
+    stringstream kernel_hash;
+    kernel_hash << hex << hash;
+    auto kernel_name = kernel_hash.str();
+
+    const cl_ulong FIXME = -1;
+
+    const auto dx = comp.config.defaultGet<cl_ulong>(kernel_name + "_dx", FIXME);
+    const auto dy = comp.config.defaultGet<cl_ulong>(kernel_name + "_dy", FIXME);
+    const auto dz = comp.config.defaultGet<cl_ulong>(kernel_name + "_dz", FIXME);
+    cout << kernel_name + "_dx " << dx << " " << dy << " " << dz << endl;
 
     /* cout << "LOOKKADOASKOSDF " << comp.config.defaultGet<cl_ulong>("custom_thingy", 123) << endl; */
     const auto &b = thread_stack;
@@ -263,19 +273,19 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const jitk::LoopB block) c
     int dims = b.size();
     switch (dims) {
         case 1: {
-            const auto gsize_and_lsize = work_ranges(work_group_size_1dx, b[0]);
+            const auto gsize_and_lsize = work_ranges(dx != FIXME ? dx : work_group_size_1dx, b[0]);
             return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
         }
         case 2: {
-            const auto gsize_and_lsize_x = work_ranges(work_group_size_2dx, b[0]);
-            const auto gsize_and_lsize_y = work_ranges(work_group_size_2dy, b[1]);
+            const auto gsize_and_lsize_x = work_ranges(dx != FIXME ? dx : work_group_size_2dx, b[0]);
+            const auto gsize_and_lsize_y = work_ranges(dy != FIXME ? dy : work_group_size_2dy, b[1]);
             return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first),
                              cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second));
         }
         case 3: {
-            const auto gsize_and_lsize_x = work_ranges(work_group_size_3dx, b[0]);
-            const auto gsize_and_lsize_y = work_ranges(work_group_size_3dy, b[1]);
-            const auto gsize_and_lsize_z = work_ranges(work_group_size_3dz, b[2]);
+            const auto gsize_and_lsize_x = work_ranges(dx != FIXME ? dx : work_group_size_3dx, b[0]);
+            const auto gsize_and_lsize_y = work_ranges(dy != FIXME ? dy : work_group_size_3dy, b[1]);
+            const auto gsize_and_lsize_z = work_ranges(dz != FIXME ? dz : work_group_size_3dz, b[2]);
             return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first),
                              cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
         }
@@ -451,7 +461,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
         }
     }
 
-    const auto ranges = NDRanges(block);
+    const auto ranges = NDRanges(block, hash);
     /* const auto ranges = NDRanges(thread_stack); */
     auto start_exec = chrono::steady_clock::now();
     auto f = ranges.first;

@@ -56,8 +56,8 @@ private:
     const cl_ulong work_group_size_3dz;
 
     // Returns the global and local work OpenCL ranges based on the 'thread_stack'
+    std::pair<cl::NDRange, cl::NDRange> NDRanges(const jitk::LoopB block, uint64_t hash) const;
     std::pair<cl::NDRange, cl::NDRange> NDRanges(const std::vector<uint64_t> &thread_stack) const;
-    std::pair<cl::NDRange, cl::NDRange> NDRanges(const jitk::LoopB block) const;
 
     // A map of allocated buffers on the device
     std::map<bh_base *, cl::Buffer *> buffers;

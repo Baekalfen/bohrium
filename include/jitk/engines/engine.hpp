@@ -141,7 +141,8 @@ protected:
      */
     virtual void writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
                                               std::stringstream &ss,
-                                              const char *array_type_prefix);
+                                              const char *array_type_prefix,
+                                              const bool is_reduction = false);
 
     /** Writes a kernel, which corresponds to a set of for-loop nest.
      *

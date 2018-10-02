@@ -27,7 +27,8 @@ namespace jitk {
 
 void Engine::writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
                                           std::stringstream &ss,
-                                          const char *array_type_prefix) {
+                                          const char *array_type_prefix,
+                                          const bool is_reduction) {
     // We create the comma separated list of args and saves it in `stmp`
     std::stringstream stmp;
     for (size_t i = 0; i < symbols.getParams().size(); ++i) {
@@ -51,6 +52,10 @@ void Engine::writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
             const InstrPtr &instr = *it;
             stmp << "const " << writeType(instr->constant.type) << " c" << symbols.constID(*instr) << ", ";
         }
+    }
+
+    if (is_reduction){
+        stmp << "__global volatile long *res, __global volatile unsigned int* index, ";
     }
 
     // And then we write `stmp` into `ss` excluding the last comma

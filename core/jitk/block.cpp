@@ -297,11 +297,27 @@ bool LoopB::validation() const {
 }
 
 uint64_t LoopB::localThreading() const {
-    if (_sweeps.size() == 0 and not isSystemOnly()) {
-        assert (size >= 0);
-        return static_cast<uint64_t>(size);
-    }
-    return 0;
+    cout << "123!" <<endl;
+    if (rank == 0 and _sweeps.size() == 1) {
+       for(auto &sweep: _sweeps) {
+           if (not bh_opcode_is_reduction(sweep->opcode)) {
+               cout << "Nope!" <<endl;
+               return 0;
+           }
+       }
+       if (not isSystemOnly()) {
+           cout << "We got a reduction!" <<endl;
+           return static_cast<uint64_t>(size);
+       }
+   } else {
+       if (_sweeps.size() == 0 and not isSystemOnly()) {
+           assert (size >= 0);
+           cout << "Turd!" <<endl;
+           return static_cast<uint64_t>(size);
+       }
+   }
+   cout << "Tsdfsdfsurd!" <<endl;
+   return 0;
 }
 
 string LoopB::pprint(const char *newline) const {
@@ -490,6 +506,7 @@ pair<uint64_t, uint64_t> parallel_ranks(const LoopB &block, unsigned int max_dep
     pair<uint64_t, uint64_t> ret = make_pair(0, 0);
     const uint64_t thds = block.localThreading();
     --max_depth;
+    cout << "Threads: " << thds << endl;
     if (thds > 0) {
         if (max_depth > 0) {
             const size_t nblocks = block.getLocalSubBlocks().size();

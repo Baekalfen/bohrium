@@ -257,6 +257,8 @@ private:
         const vector<bh_base *> &v = symbols.getParams();
         copyToDevice(set<bh_base *>(v.begin(), v.end()));
 
+        cout << kernel._block_list << endl;
+
         // Create the constant vector
         vector<const bh_instruction *> constants;
         constants.reserve(symbols.constIDs().size());

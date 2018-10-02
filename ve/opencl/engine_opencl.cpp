@@ -398,6 +398,22 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
         }
     }
 
+    /* auto *buf = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(base->nbytes())); */
+    /* bool inserted = buffers.insert(std::make_pair(base, buf)).second; */
+    /* if (not inserted) { */
+    /*     throw std::runtime_error("OpenCL - createBuffer(): the base already has a buffer!"); */
+    /* } */
+    /* return buf; */
+
+    /* cl::Buffer *buf = createBuffer(base); */
+
+    auto *reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(10*8));
+    /* cout << reduction_mem << endl; */
+    opencl_kernel.setArg(i++, *reduction_mem);
+
+    auto *index_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(1*4));
+    opencl_kernel.setArg(i++, *index_mem);
+
     const auto ranges = NDRanges(thread_stack);
     auto start_exec = chrono::steady_clock::now();
     queue.enqueueNDRangeKernel(opencl_kernel, cl::NullRange, ranges.first, ranges.second);
@@ -405,6 +421,9 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     auto texec = chrono::steady_clock::now() - start_exec;
     stat.time_exec += texec;
     stat.time_per_kernel[source_filename].register_exec_time(texec);
+
+    malloc_cache.free(10*8, reduction_mem);
+    malloc_cache.free(1*4, index_mem);
 }
 
 // Copy 'bases' to the host (ignoring bases that isn't on the device)
@@ -490,10 +509,33 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     }
     ss << "\n";
 
+
+    // Only handle a single sweep, which is a reduction
+    auto is_reduction = false;
+    auto rank0 = kernel.getLocalSubBlocks().front();
+    auto sweeps = rank0->getSweeps();
+    if (sweeps.size() == 1) {
+        for(auto &sweep: sweeps) {
+            cout << sweep << endl;
+            if (bh_opcode_is_reduction(sweep->opcode)) {
+                cout << "Reduction!" <<endl;
+                is_reduction = true;
+                /* auto s = sweeps; */
+                /* s.clear(); // We'll handle it from here */
+                /* kernel._sweeps = s; */
+            }
+        }
+    }
+
     // Write the header of the execute function
     ss << "__kernel void execute_" << codegen_hash;
-    writeKernelFunctionArguments(symbols, ss, "__global");
+    writeKernelFunctionArguments(symbols, ss, "__global", is_reduction);
     ss << " {\n";
+
+    if (is_reduction){
+        util::spaces(ss, 4);
+        ss << "long reduction = 0;\n"; // TODO: Get type from kernel._block_list._sweeps and insert neutral element
+    }
 
     // Write the IDs of the threaded blocks
     if (not thread_stack.empty()) {
@@ -506,7 +548,27 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         }
         ss << "\n";
     }
+
+    // Write inner blocks
     writeBlock(symbols, nullptr, kernel, thread_stack, true, ss);
+
+    if (is_reduction){
+        auto const reduction_array = "a1"; // Get this from the sweep attributes
+        auto const result = "a2[0]"; // Get this from the sweep attributes
+
+        /* util::spaces(ss, 4); */
+        /* ss << "long a = " << reduction_array << "[g0] + " << reduction_array << "[g0+1];\n"; */
+        util::spaces(ss, 4);
+        ss << "if (g0 == 0) { \n";
+        util::spaces(ss, 8);
+        ss << "long a = " << reduction_array << "[g0] + " << reduction_array << "[g0+1] + a1[g0+2] + a1[g0+3];\n";
+        util::spaces(ss, 8);
+        ss << result <<" = a;\n";
+        util::spaces(ss, 4);
+        ss << "}\n";
+    }
+
+    // Close kernel
     ss << "}\n\n";
 }
 
@@ -519,7 +581,12 @@ void EngineOpenCL::loopHeadWriter(const jitk::SymbolTable &symbols,
     // Write the for-loop header
     std::string itername; { std::stringstream t; t << "i" << block.rank; itername = t.str(); }
     if (thread_stack.size() > static_cast<size_t >(block.rank)) {
-        assert(block._sweeps.size() == 0);
+        if (block._sweeps.size() != 0){
+           for(auto &sweep: block._sweeps) {
+               assert (bh_opcode_is_reduction(sweep->opcode));
+           }
+        }
+
         if (num_threads > 0 and thread_stack[block.rank] > 0) {
             if (num_threads_round_robin) {
                 out << "for (" << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << "; "

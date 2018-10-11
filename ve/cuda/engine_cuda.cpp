@@ -268,7 +268,7 @@ void EngineCUDA::writeKernel(const jitk::LoopB &kernel,
         }
         ss << "\n";
     }
-    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss);
+    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, false);
     ss << "}\n\n";
 }
 

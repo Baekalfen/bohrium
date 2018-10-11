@@ -23,6 +23,7 @@ If not, see <http://www.gnu.org/licenses/>.
 
 #include <bh_instruction.hpp>
 #include <bh_component.hpp>
+#include "bh_type.hpp"
 
 #include <jitk/compiler.hpp>
 #include <jitk/symbol_table.hpp>
@@ -233,6 +234,7 @@ pair<uint32_t, uint32_t> work_ranges(uint64_t work_group_size, int64_t block_siz
 }
 
 pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &thread_stack) const {
+    /* cout << "thread_stack " << thread_stack << endl; */
     const auto &b = thread_stack;
     switch (b.size()) {
         case 1: {
@@ -336,6 +338,8 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
 
     cl_uint i = 0;
     for (bh_base *base: symbols.getParams()) { // NB: the iteration order matters!
+        cout <<base->str()<<endl;
+        cout <<bh_type_size(base->type)<<endl;
         opencl_kernel.setArg(i++, *getBuffer(base));
     }
 
@@ -406,15 +410,17 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     /* return buf; */
 
     /* cl::Buffer *buf = createBuffer(base); */
+    const auto ranges = NDRanges(thread_stack);
+    size_t local_size = ranges.second.local_size();
+    size_t work_groups = ranges.first.dim(0) / ranges.second.dim(0);
+    cout << "local_size " << local_size << " work_groups " << work_groups << endl;
 
-    auto *reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(10*8));
-    /* cout << reduction_mem << endl; */
-    opencl_kernel.setArg(i++, *reduction_mem);
-
+    auto *reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(work_groups*4));
     auto *index_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(1*4));
+    opencl_kernel.setArg(i++, *reduction_mem);
+    opencl_kernel.setArg(i++, local_size*4, NULL); // Allocate local memory for reduction
     opencl_kernel.setArg(i++, *index_mem);
 
-    const auto ranges = NDRanges(thread_stack);
     auto start_exec = chrono::steady_clock::now();
     queue.enqueueNDRangeKernel(opencl_kernel, cl::NullRange, ranges.first, ranges.second);
     queue.finish();
@@ -422,7 +428,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     stat.time_exec += texec;
     stat.time_per_kernel[source_filename].register_exec_time(texec);
 
-    malloc_cache.free(10*8, reduction_mem);
+    malloc_cache.free(work_groups*4, reduction_mem);
     malloc_cache.free(1*4, index_mem);
 }
 
@@ -500,14 +506,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                const vector<uint64_t> &thread_stack,
                                uint64_t codegen_hash,
                                stringstream &ss) {
-    // Write the need includes
-    ss << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
-    ss << "#include <kernel_dependencies/complex_opencl.h>\n";
-    ss << "#include <kernel_dependencies/integer_operations.h>\n";
-    if (symbols.useRandom()) { // Write the random function
-        ss << "#include <kernel_dependencies/random123_opencl.h>\n";
-    }
-    ss << "\n";
 
 
     // Only handle a single sweep, which is a reduction
@@ -525,81 +523,33 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 /* kernel._sweeps = s; */
 
                 ss << R"CONST(
-#ifdef cl_nv_pragma_unroll
-#define NVIDIA
-#define wavefront_size 32
-#else
-#define AMD
-#define wavefront_size 64
-#endif
-
-#define __DATA_TYPE__ long
-
-#define LOCAL_SIZE 256
-
-#define length 32
-#define A a1
-
-inline __DATA_TYPE__ reduce_wave(__DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a, size_t limit){
-    size_t lid = get_local_id(0);
-    // TODO: Try iterating backwards like AMD's example
-    bool running = ((lid%2) == 0);
-    for (size_t i=1; i<=limit/2; i<<=1){
-        if (running){
-            running = (lid%(i<<2) == 0);
-            acc = acc + a[lid+i];
-            a[lid] = acc;
-        }
-    }
-    return acc;
-}
-
-inline void reduce_workgroup_wave_elimination_quarters(__local volatile __DATA_TYPE__ *a, size_t limit){
-    size_t lid = get_local_id(0);
-    barrier(CLK_LOCAL_MEM_FENCE); // Other reductions don't need this, but we are reading way out of the wavefront
-
-    // We unroll the for-loop once, to eliminate a lot of workgroups.
-    size_t i;
-    for (i=limit/4; i>=32; i>>=2){
-        __DATA_TYPE__ acc1;
-        __DATA_TYPE__ acc2;
-        __DATA_TYPE__ acc3;
-        __DATA_TYPE__ acc4;
-        bool running = lid < i;
-
-        // WARN: Requires commutative property!
-        if (running){
-            acc1 = a[lid];
-            acc2 = a[i+lid];
-            acc3 = a[i*2+lid];
-            acc4 = a[i*3+lid];
-            // No more banking conflicts! Each lid reads its own bank every time down to wavefront size
-            a[lid] = acc1+acc2+acc3+acc4;
-        }
-        barrier(CLK_LOCAL_MEM_FENCE);
-        // https://www.khronos.org/registry/OpenCL/sdk/1.0/docs/man/xhtml/barrier.html
-        // All work-items has to execute barriers
-    }
-
-    /* size_t wavefront_size = 32; */
-    size_t wavefront_number = lid / wavefront_size;
-    if (wavefront_number == 0){
-        // TODO: Determine at compile time.
-        if (i==16){ // for-loop iterated past the wavefront limit because of uneven number of divisors for local_size (it hasn't executed. local memory is at state of 64 elements). We will run a single iteration to get to 32 elements.
-            __DATA_TYPE__ acc1;
-            __DATA_TYPE__ acc2;
-            acc1 = a[lid];
-            acc2 = a[lid+wavefront_size];
-            a[lid] = acc1+acc2;
-        }
-        reduce_wave(a[lid], a, wavefront_size);
-    }
-}
+#define __DATA_TYPE__ float
+//#define first_val a1[g0]
+//#define FINAL a2
+#define NEUTRAL 0
 )CONST";
             }
         }
     }
 
+    // Write the need includes
+    ss << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+    /* if (symbols.useReduction()) { // NOT IMPLEMENTED */
+        ss << "#ifdef cl_nv_pragma_unroll\n";
+        ss << "#define NVIDIA\n";
+        ss << "#define wavefront_size 32\n";
+        ss << "#else\n";
+        ss << "#define AMD\n";
+        ss << "#define wavefront_size 64\n";
+        ss << "#endif\n";
+        ss << "#include <kernel_dependencies/reduce_opencl.h>\n";
+    /* } */
+    ss << "#include <kernel_dependencies/complex_opencl.h>\n";
+    ss << "#include <kernel_dependencies/integer_operations.h>\n";
+    if (symbols.useRandom()) { // Write the random function
+        ss << "#include <kernel_dependencies/random123_opencl.h>\n";
+    }
+    ss << "\n";
 
 
 
@@ -610,109 +560,41 @@ inline void reduce_workgroup_wave_elimination_quarters(__local volatile __DATA_T
 
     if (is_reduction){
         util::spaces(ss, 4);
-        ss << "long reduction = 0;\n"; // TODO: Get type from kernel._block_list._sweeps and insert neutral element
+        ss << "__DATA_TYPE__ element;\n"; // TODO: Get type from kernel._block_list._sweeps and insert neutral element
+        util::spaces(ss, 4);
+        ss << "__global __DATA_TYPE__* destination;\n"; // TODO: Get type from kernel._block_list._sweeps and insert neutral element
     }
 
     // Write the IDs of the threaded blocks
     if (not thread_stack.empty()) {
         util::spaces(ss, 4);
-        ss << "// The IDs of the threaded blocks: \n";
+        ss << "// The IDs of the threaded blocks:\n";
         for (unsigned int i=0; i < thread_stack.size(); ++i) {
             util::spaces(ss, 4);
-            ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
-               << "if (g" << i << " >= " << thread_stack[i] << ") { return; } // Prevent overflow\n";
+            if (is_reduction && i == 0){
+                // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
+                ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
+                   << "if (g" << i << " < " << thread_stack[i] << ") { // Prevent overflow in calculations, but keep thread for reduction\n";
+            }
+            else{
+                ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
+                   << "if (g" << i << " >= " << thread_stack[i] << ") { return; } // Prevent overflow\n";
+            }
         }
         ss << "\n";
     }
 
     // Write inner blocks
-    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss);
+    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, is_reduction);
 
     if (is_reduction){
-        auto const reduction_array = "a1"; // Get this from the sweep attributes
-        auto const result = "a2[0]"; // Get this from the sweep attributes
-
-        /* util::spaces(ss, 4); */
-        /* ss << "long a = " << reduction_array << "[g0] + " << reduction_array << "[g0+1];\n"; */
-        util::spaces(ss, 4);
-        ss << "if (g0 == 0) { \n";
-        util::spaces(ss, 8);
-        ss << "long a = " << reduction_array << "[g0] + " << reduction_array << "[g0+1] + a1[g0+2] + a1[g0+3];\n";
-        util::spaces(ss, 8);
-        ss << result <<" = a;\n";
-        util::spaces(ss, 4);
-        ss << "}\n";
-
-
-        ss << R"KERNEL(
-    __local __DATA_TYPE__ a[LOCAL_SIZE*sizeof(__DATA_TYPE__)];
-    size_t gid = get_global_id(0);
-    size_t lid = get_local_id(0);
-    size_t local_size = get_local_size(0);
-    size_t global_size = get_global_size(0);
-    size_t group_id = get_group_id(0);
-    size_t group_count = get_num_groups(0);
-    size_t wavefront_id = lid % wavefront_size;
-    size_t wavefront_number = lid / wavefront_size;
-    size_t wavefront_count = local_size / wavefront_size;
-
-    __DATA_TYPE__ acc;
-    if (gid > length-1) {
-        acc = 0; // Neutral element, when there is no data in global memory to read
-        // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
+        // Inject neutral element, when there is no data in global memory to read
+        ss << "    }else{\n        element = NEUTRAL;\n"
+           << "    }\n\n    full_reduction(element, a, res, index, destination);\n";
     }
-    else{
-        acc = A[gid];
-    }
+    ss << "}\n\n";
 
-    a[lid] = acc;
-    // Barrier not needed, as data is always read from same wavefront -- not always true. Sub-function will call barrier if necessary.
-    reduce_workgroup_wave_elimination_quarters(a, local_size);
-
-    if (lid == 0){
-        res[group_id] = a[0];
-    }
-
-    write_mem_fence(CLK_GLOBAL_MEM_FENCE);
-
-    // Add our work-group to the finished counter, and share with remaining wavefront.
-    if (lid == 0){
-        uint finish_id = atomic_inc(index);
-        a[0] = finish_id; // WARN: Type cast
-    }
-
-    // All wavefronts in work-group synchronizes here to determine, if they are needed for final reduction
-    barrier(CLK_LOCAL_MEM_FENCE);
-    uint finish_id = a[0];
-
-    // If we are the last work-group, fetch all other work-group's results and reduce
-    if (finish_id == group_count-1){
-
-        // Loop through all values in result array. Eventhough there might be more than work-group size
-        // WARN: Requires commutative property!
-        acc = 0;
-        for (size_t i=0; i < group_count; i += local_size){
-            if (lid+i < group_count){
-                acc = acc + res[lid+i];
-            }
-        }
-
-        a[lid] = acc;
-        reduce_workgroup_wave_elimination_quarters(a, local_size);
-
-        if (lid == 0){
-            res[0] = a[0];
-            a2[0] = a[0];
-        }
-    }
-}
-
-)KERNEL";
-    }
-    else{
-        // Close kernel
-        ss << "}\n\n";
-    }
+    cout << "LALA" << endl;
 }
 
 // Writes the OpenCL specific for-loop header

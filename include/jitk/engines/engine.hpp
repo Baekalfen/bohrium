@@ -158,7 +158,8 @@ protected:
                             const LoopB &kernel,
                             const std::vector<uint64_t> &thread_stack,
                             bool opencl,
-                            std::stringstream &out);
+                            std::stringstream &out,
+                            bool is_reduction);
 
     /** Write a loop header
      *

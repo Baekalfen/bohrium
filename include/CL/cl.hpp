@@ -4476,6 +4476,19 @@ public:
 
     //! \brief Queries the number of dimensions in the range.
     ::size_t dimensions() const { return dimensions_; }
+
+    unsigned long dim(unsigned int dim) const {
+        assert (dim <= dimensions_);
+        return sizes_[dim];
+    }
+
+    unsigned long local_size() const {
+        unsigned long size = 1;
+        for (int i=0; i<dimensions_; i++){
+            size *= sizes_[i];
+        }
+        return size;
+    }
 };
 
 //! \brief A zero-dimensional range.

@@ -340,7 +340,7 @@ void EngineOpenMP::writeKernel(const LoopB &kernel,
     }
     ss << "\n";
 
-    writeBlock(symbols, nullptr, kernel, {}, false, ss);
+    writeBlock(symbols, nullptr, kernel, {}, false, ss, false);
 
     // Write frees of the kernel temporaries
     ss << "\n";

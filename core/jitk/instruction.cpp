@@ -678,11 +678,14 @@ void write_other_instr(const Scope &scope, const bh_instruction &instr, stringst
         } else {
             scope.getName(view, ss);
             if (scope.isArray(view)) {
+                /* out << "// " << o << " " << bh_opcode_is_reduction(instr.opcode) << " " << instr.operand[1].ndim << endl; */
                 if (o == 0 and bh_opcode_is_reduction(instr.opcode) and instr.operand[1].ndim > 1) {
                     // If 'instr' is a reduction we have to ignore the reduced axis of the output array when
                     // reducing to a non-scalar
+                    /* out << "ko\n"; */
                     write_array_subscription(scope, view, ss, true, instr.sweep_axis());
                 } else {
+                    /* out << "lo\n"; */
                     write_array_subscription(scope, view, ss);
                 }
             }

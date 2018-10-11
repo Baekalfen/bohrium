@@ -55,7 +55,7 @@ void Engine::writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
     }
 
     if (is_reduction){
-        stmp << "__global volatile long *res, __global volatile unsigned int* index, ";
+        stmp << "__global volatile __DATA_TYPE__ *res, __local volatile __DATA_TYPE__ *a, __global volatile unsigned int* index, ";
     }
 
     // And then we write `stmp` into `ss` excluding the last comma
@@ -73,7 +73,8 @@ void Engine::writeBlock(const SymbolTable &symbols,
                         const LoopB &kernel,
                         const std::vector<uint64_t> &thread_stack,
                         bool opencl,
-                        std::stringstream &out) {
+                        std::stringstream &out,
+                        bool is_reduction) {
 
     if (kernel.isSystemOnly()) {
         out << "// Removed loop with only system instructions\n";
@@ -86,6 +87,8 @@ void Engine::writeBlock(const SymbolTable &symbols,
             sweeps_in_child.insert(sub_block.getLoop()._sweeps.begin(), sub_block.getLoop()._sweeps.end());
         }
     }
+
+    out << "//1" << endl;
     // Order all sweep instructions by the viewID of their first operand.
     // This makes the source of the kernels more identical, which improve the code and compile caches.
     const vector <jitk::InstrPtr> ordered_block_sweeps = order_sweep_set(sweeps_in_child, symbols);
@@ -95,18 +98,25 @@ void Engine::writeBlock(const SymbolTable &symbols,
 
     // We always scalar replace reduction outputs that reduces over the innermost axis
     vector<const bh_view *> scalar_replaced_reduction_outputs;
+    cout << "ordered_block_sweeps" << endl;
     for (const jitk::InstrPtr &instr: ordered_block_sweeps) {
         if (bh_opcode_is_reduction(instr->opcode) and jitk::sweeping_innermost_axis(instr)) {
             if (local_tmps.find(instr->operand[0].base) == local_tmps.end()) {
+                cout << "scalar_replaced_reduction_outputs" << endl;
                 scalar_replaced_reduction_outputs.push_back(&instr->operand[0]);
             }
         }
     }
+    out << "//2" << endl;
 
     // Let's scalar replace input-only arrays that are used multiple times
     vector<const bh_view *> srio = jitk::scalar_replaced_input_only(kernel, parent_scope, local_tmps);
     jitk::Scope scope(symbols, parent_scope, local_tmps, scalar_replaced_reduction_outputs, srio);
 
+    out << "//3" << endl;
+
+    cout << "scalar_replaced_to_write_back" << endl;
+    stringstream post_script;
     // Write temporary and scalar replaced array declarations
     vector<const bh_view *> scalar_replaced_to_write_back;
     for (const jitk::Block &block: kernel._block_list) {
@@ -115,16 +125,40 @@ void Engine::writeBlock(const SymbolTable &symbols,
             for (const bh_view &view: instr->getViews()) {
                 if (not scope.isDeclared(view)) {
                     if (scope.isTmp(view.base)) {
+                        out << "//a" << endl;
                         util::spaces(out, 8 + kernel.rank * 4);
                         scope.writeDeclaration(view, writeType(view.base->type), out);
                         out << "\n";
                     } else if (scope.isScalarReplaced(view)) {
+                        out << "//b" << endl;
                         util::spaces(out, 8 + kernel.rank * 4);
-                        scope.writeDeclaration(view, writeType(view.base->type), out);
-                        out << " " << scope.getName(view) << " = a" << symbols.baseID(view.base);
+                        cout <<scope.getName(view)<<endl;
+                        /* if (!bh_opcode_is_reduction(instr->opcode)){ */
+                            scope.writeDeclaration(view, writeType(view.base->type), out);
+                            out << " " << scope.getName(view) << " = a" << symbols.baseID(view.base);
+                        /* } */
+                        /* else{ */
+                        /*     out << "element = a" << symbols.baseID(view.base); */
+                        /* } */
                         write_array_subscription(scope, view, out);
                         out << ";";
                         out << "\n";
+                        if (is_reduction && bh_opcode_is_reduction(instr->opcode)){
+                            out << "// Writeback of reduction removed: ";
+                            out << "a" << symbols.baseID(view.base);
+                            write_array_subscription(scope, view, out, true);
+                            out << " = ";
+                            scope.getName(view, out);
+                            out << ";\n";
+
+                            util::spaces(post_script, 8 + kernel.rank * 4);
+                            post_script << "element = ";
+                            scope.getName(view, post_script);
+                            post_script << ";\n";
+
+                            util::spaces(post_script, 8 + kernel.rank * 4);
+                            post_script << "destination = a" << symbols.baseID(view.base) << ";\n";
+                        } else
                         if (scope.isScalarReplaced_RW(view.base)) {
                             scalar_replaced_to_write_back.push_back(&view);
                         }
@@ -134,6 +168,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
         }
     }
 
+    out << "//4" << endl;
     //Let's declare indexes if we are not at the kernel level (rank == -1)
     if (kernel.rank >= 0) {
         for (const jitk::Block &block: kernel._block_list) {
@@ -154,17 +189,32 @@ void Engine::writeBlock(const SymbolTable &symbols,
 
     // Write the for-loop body
     // The body in OpenCL and OpenMP are very similar but OpenMP might need to insert "#pragma omp atomic/critical"
+    out << "//5" << endl;
+    cout << "opencl" << endl;
     if (opencl) {
         for (const Block &b: kernel._block_list) {
+            cout << "I" << endl;
             if (b.isInstr()) { // Finally, let's write the instruction
+                cout << "III" << endl;
+                out << "//6" << endl;
                 if (b.getInstr() != nullptr and not bh_opcode_is_system(b.getInstr()->opcode)) {
+                    if (bh_opcode_is_reduction(b.getInstr()->opcode)){
+                        util::spaces(out, 4 + b.rank() * 4);
+                        out << "// TODO: This operation is redundant: ";
+                        write_instr(scope, *b.getInstr(), out, true);
+                    }
                     util::spaces(out, 4 + b.rank() * 4);
                     write_instr(scope, *b.getInstr(), out, true);
                 }
             } else {
+                cout << "II" << endl;
+                out << "//7" << endl;
                 util::spaces(out, 4 + b.rank() * 4);
+                cout << "V" << endl;
                 loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out);
-                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out);
+                cout << "VI" << endl;
+                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_reduction);
+                cout << "VII" << endl;
                 util::spaces(out, 4 + b.rank() * 4);
                 out << "}\n";
             }
@@ -189,13 +239,16 @@ void Engine::writeBlock(const SymbolTable &symbols,
             } else {
                 util::spaces(out, 4 + b.rank() * 4);
                 loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out);
-                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out);
+                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_reduction);
                 util::spaces(out, 4 + b.rank() * 4);
                 out << "}\n";
             }
         }
     }
 
+
+    out << "//8" << endl;
+    cout << "scalar_replaced_to_write_back2" << endl;
     // Let's copy the scalar replaced reduction outputs back to the original array
     for (const bh_view *view: scalar_replaced_to_write_back) {
         util::spaces(out, 8 + kernel.rank * 4);
@@ -205,6 +258,9 @@ void Engine::writeBlock(const SymbolTable &symbols,
         scope.getName(*view, out);
         out << ";\n";
     }
+
+
+    out << post_script.str() << endl;
 }
 
 void Engine::setConstructorFlag(std::vector<bh_instruction *> &instr_list, std::set<bh_base *> &constructed_arrays) {

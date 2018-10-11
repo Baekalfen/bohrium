@@ -27,6 +27,7 @@ If not, see <http://www.gnu.org/licenses/>.
 
 #include <jitk/compiler.hpp>
 #include <jitk/symbol_table.hpp>
+#include <jitk/instruction.hpp>
 
 #include "engine_opencl.hpp"
 
@@ -507,7 +508,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                uint64_t codegen_hash,
                                stringstream &ss) {
 
-
     // Only handle a single sweep, which is a reduction
     auto is_reduction = false;
     auto rank0 = kernel.getLocalSubBlocks().front();
@@ -518,16 +518,16 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             if (bh_opcode_is_reduction(sweep->opcode)) {
                 cout << "Reduction!" <<endl;
                 is_reduction = true;
-                /* auto s = sweeps; */
-                /* s.clear(); // We'll handle it from here */
-                /* kernel._sweeps = s; */
 
-                ss << R"CONST(
-#define __DATA_TYPE__ float
-//#define first_val a1[g0]
-//#define FINAL a2
-#define NEUTRAL 0
-)CONST";
+                for (const bh_view &view: sweep->getViews()) {
+                    stringstream lala;
+                    jitk::write_reduce_identity(sweep->opcode, view.base->type, lala);
+                    ss << "#define NEUTRAL " << lala.str() << "\n";
+                    ss << "#define __DATA_TYPE__ " << writeType(view.base->type) <<"\n";
+                    /* size_t datatype_size; */
+                    /* datatype_size = bh_type_size(view.base->type); */
+                    break; // There are two views for a reduction, we just need the first, which is the destination.
+                }
             }
         }
     }
@@ -535,13 +535,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     // Write the need includes
     ss << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
     /* if (symbols.useReduction()) { // NOT IMPLEMENTED */
-        ss << "#ifdef cl_nv_pragma_unroll\n";
-        ss << "#define NVIDIA\n";
-        ss << "#define wavefront_size 32\n";
-        ss << "#else\n";
-        ss << "#define AMD\n";
-        ss << "#define wavefront_size 64\n";
-        ss << "#endif\n";
         ss << "#include <kernel_dependencies/reduce_opencl.h>\n";
     /* } */
     ss << "#include <kernel_dependencies/complex_opencl.h>\n";

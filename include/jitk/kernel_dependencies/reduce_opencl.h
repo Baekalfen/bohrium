@@ -19,6 +19,13 @@ If not, see <http://www.gnu.org/licenses/>.
 */
 
 #pragma once
+#ifdef cl_nv_pragma_unroll
+#define NVIDIA
+#define wavefront_size 32
+#else
+#define AMD
+#define wavefront_size 64
+#endif
 
 inline __DATA_TYPE__ reduce_wave(__DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a, size_t limit){
     size_t lid = get_local_id(0);

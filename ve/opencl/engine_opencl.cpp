@@ -323,7 +323,8 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
                            const std::string &source,
                            uint64_t codegen_hash,
                            const vector<uint64_t> &thread_stack,
-                           const vector<const bh_instruction*> &constants) {
+                           const vector<const bh_instruction*> &constants,
+                           const std::pair<bh_opcode, bh_type> reduction_pair) {
     // Notice, we use a "pure" hash of `source` to make sure that the `source_filename` always
     // corresponds to `source` even if `codegen_hash` is buggy.
     uint64_t hash = util::hash(source);
@@ -416,11 +417,21 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     size_t work_groups = ranges.first.dim(0) / ranges.second.dim(0);
     cout << "local_size " << local_size << " work_groups " << work_groups << endl;
 
-    auto *reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(work_groups*4));
-    auto *index_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(1*4));
-    opencl_kernel.setArg(i++, *reduction_mem);
-    opencl_kernel.setArg(i++, local_size*4, NULL); // Allocate local memory for reduction
-    opencl_kernel.setArg(i++, *index_mem);
+    cl::Buffer *reduction_mem = nullptr;
+    cl::Buffer *index_mem = nullptr;
+    size_t dtype_size;
+    if (reduction_pair.first != BH_NONE) {
+
+        dtype_size = bh_type_size(reduction_pair.second);
+
+        reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(work_groups*dtype_size));
+        index_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(1*4));
+        // TODO: Zero index memory!
+        /* queue.enqueueFillBuffer(index_mem, 0, 0, work_groups*dtype_size, nullptr, nullptr); */
+        opencl_kernel.setArg(i++, *reduction_mem);
+        opencl_kernel.setArg(i++, local_size*4, NULL); // Allocate local memory for reduction
+        opencl_kernel.setArg(i++, *index_mem);
+    }
 
     auto start_exec = chrono::steady_clock::now();
     queue.enqueueNDRangeKernel(opencl_kernel, cl::NullRange, ranges.first, ranges.second);
@@ -429,8 +440,10 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     stat.time_exec += texec;
     stat.time_per_kernel[source_filename].register_exec_time(texec);
 
-    malloc_cache.free(work_groups*4, reduction_mem);
-    malloc_cache.free(1*4, index_mem);
+    if (reduction_pair.first != BH_NONE) {
+        malloc_cache.free(work_groups*dtype_size, reduction_mem);
+        malloc_cache.free(1*4, index_mem);
+    }
 }
 
 // Copy 'bases' to the host (ignoring bases that isn't on the device)
@@ -506,45 +519,69 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                const jitk::SymbolTable &symbols,
                                const vector<uint64_t> &thread_stack,
                                uint64_t codegen_hash,
-                               stringstream &ss) {
+                               stringstream &ss,
+                               const std::pair<bh_opcode, bh_type> reduction_pair) {
 
-    // Only handle a single sweep, which is a reduction
-    auto is_reduction = false;
-    auto rank0 = kernel.getLocalSubBlocks().front();
-    auto sweeps = rank0->getSweeps();
-    if (sweeps.size() == 1) {
-        for(auto &sweep: sweeps) {
-            cout << sweep << endl;
-            if (bh_opcode_is_reduction(sweep->opcode)) {
-                cout << "Reduction!" <<endl;
-                is_reduction = true;
+    if (reduction_pair.first != BH_NONE) {
+        stringstream lala;
+        jitk::write_reduce_identity(reduction_pair.first, reduction_pair.second, lala);
+        ss << "#define NEUTRAL " << lala.str() << "\n";
 
-                for (const bh_view &view: sweep->getViews()) {
-                    stringstream lala;
-                    jitk::write_reduce_identity(sweep->opcode, view.base->type, lala);
-                    ss << "#define NEUTRAL " << lala.str() << "\n";
-                    ss << "#define __DATA_TYPE__ " << writeType(view.base->type) <<"\n";
-                    /* size_t datatype_size; */
-                    /* datatype_size = bh_type_size(view.base->type); */
-                    break; // There are two views for a reduction, we just need the first, which is the destination.
-                }
-            }
+        ss << "#define OPERATOR(a,b) (";
+        const std::vector<string> ops = std::vector<string> {"a", "b"};
+        /* jitk::write_operation(bh_instruction(reduction_pair.first, views), ops, ss, true); */
+        switch (reduction_pair.first) {
+            case BH_BITWISE_AND_REDUCE:
+                ss << ops[0] << " & " << ops[1];
+                break;
+            case BH_BITWISE_OR_REDUCE:
+                ss << ops[0] << " | " << ops[1];
+                break;
+            case BH_BITWISE_XOR_REDUCE:
+                ss << ops[0] << " ^ " << ops[1];
+                break;
+            case BH_LOGICAL_OR_REDUCE:
+                ss << ops[0] << " || " << ops[1];
+                break;
+            case BH_LOGICAL_AND_REDUCE:
+                ss << ops[0] << " && " << ops[1];
+                break;
+            case BH_LOGICAL_XOR_REDUCE:
+                ss << ops[0] << " != !" << ops[1];
+                break;
+            case BH_MAXIMUM_REDUCE:
+                ss <<  "max(" << ops[0] << ", " << ops[1] << ")";
+                break;
+            case BH_MINIMUM_REDUCE:
+                ss <<  "min(" << ops[0] << ", " << ops[1] << ")";
+                break;
+            case BH_ADD_REDUCE:
+                ss << ops[0] << " + " << ops[1];
+                break;
+            case BH_MULTIPLY_REDUCE:
+                ss << ops[0] << " * " << ops[1];
+                break;
+            default:
+                throw runtime_error("Instruction not supported.");
         }
-    }
+        ss << ")\n";
+        ss << "\n";
 
-    // Write the need includes
-    ss << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
-    /* if (symbols.useReduction()) { // NOT IMPLEMENTED */
+        ss << "#define __DATA_TYPE__ " << writeType(reduction_pair.second) <<"\n";
         ss << "#include <kernel_dependencies/reduce_opencl.h>\n";
-    /* } */
-    ss << "#include <kernel_dependencies/complex_opencl.h>\n";
-    ss << "#include <kernel_dependencies/integer_operations.h>\n";
-    if (symbols.useRandom()) { // Write the random function
-        ss << "#include <kernel_dependencies/random123_opencl.h>\n";
+
+        // Write the need includes
+        ss << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+        ss << "#include <kernel_dependencies/complex_opencl.h>\n";
+        ss << "#include <kernel_dependencies/integer_operations.h>\n";
+        if (symbols.useRandom()) { // Write the random function
+            ss << "#include <kernel_dependencies/random123_opencl.h>\n";
+        }
+        ss << "\n";
+
     }
-    ss << "\n";
 
-
+    bool is_reduction = (reduction_pair.first != BH_NONE);
 
     // Write the header of the execute function
     ss << "__kernel void execute_" << codegen_hash;

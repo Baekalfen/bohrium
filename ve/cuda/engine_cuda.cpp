@@ -243,7 +243,8 @@ void EngineCUDA::writeKernel(const jitk::LoopB &kernel,
                              const jitk::SymbolTable &symbols,
                              const std::vector<uint64_t> &thread_stack,
                              uint64_t codegen_hash,
-                             std::stringstream &ss) {
+                             std::stringstream &ss,
+                             const std::pair<bh_opcode, bh_type> reduction_pair) {
     // Write the need includes
     ss << "#include <kernel_dependencies/complex_cuda.h>\n";
     ss << "#include <kernel_dependencies/integer_operations.h>\n";
@@ -276,7 +277,8 @@ void EngineCUDA::execute(const jitk::SymbolTable &symbols,
                          const std::string &source,
                          uint64_t codegen_hash,
                          const vector<uint64_t> &thread_stack,
-                         const vector<const bh_instruction *> &constants) {
+                         const vector<const bh_instruction *> &constants,
+                         const std::pair<bh_opcode, bh_type> reduction_pair) {
     uint64_t hash = util::hash(source);
     std::string source_filename = jitk::hash_filename(compilation_hash, hash, ".cu");
 

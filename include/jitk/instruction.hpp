@@ -30,6 +30,11 @@ namespace jitk {
 // Write the source code of an instruction (set 'opencl' for OpenCL specific output)
 void write_instr(const Scope &scope, const bh_instruction &instr, std::stringstream &out, bool opencl = false);
 
+
+// Bypass scope and other autonomy to get bare instruction source code
+void write_operation(const bh_instruction &instr, const std::vector<std::string> &ops, std::stringstream &out, bool opencl);
+
+
 // Write the neutral value of a reduction
 void write_reduce_identity(bh_opcode opcode, bh_type dtype, std::stringstream &out);
 

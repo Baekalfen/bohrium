@@ -27,6 +27,8 @@ If not, see <http://www.gnu.org/licenses/>.
 #define wavefront_size 64
 #endif
 
+#define OPERATOR4(a,b,c,d) (OPERATOR(OPERATOR(a, b), OPERATOR(c, d)))
+
 inline __DATA_TYPE__ reduce_wave(__DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a, size_t limit){
     size_t lid = get_local_id(0);
     // TODO: Try iterating backwards like AMD's example
@@ -34,7 +36,7 @@ inline __DATA_TYPE__ reduce_wave(__DATA_TYPE__ acc, __local volatile __DATA_TYPE
     for (size_t i=1; i<=limit/2; i<<=1){
         if (running){
             running = (lid%(i<<2) == 0);
-            acc = acc + a[lid+i];
+            acc = OPERATOR(acc, a[lid+i]);
             a[lid] = acc;
         }
     }
@@ -47,21 +49,17 @@ inline __DATA_TYPE__ reduce_workgroup_wave_elimination_quarters(__local volatile
 
     // We unroll the for-loop once, to eliminate a lot of workgroups.
     size_t i;
-    for (i=limit/4; i>=32; i>>=2){
-        __DATA_TYPE__ acc1;
-        __DATA_TYPE__ acc2;
-        __DATA_TYPE__ acc3;
-        __DATA_TYPE__ acc4;
+    for (i=limit/4; i>=wavefront_size; i>>=2){
         bool running = lid < i;
 
         // WARN: Requires commutative property!
         if (running){
-            acc1 = a[lid];
-            acc2 = a[i+lid];
-            acc3 = a[i*2+lid];
-            acc4 = a[i*3+lid];
+            __DATA_TYPE__ acc1 = a[lid];
+            __DATA_TYPE__ acc2 = a[i+lid];
+            __DATA_TYPE__ acc3 = a[i*2+lid];
+            __DATA_TYPE__ acc4 = a[i*3+lid];
             // No more banking conflicts! Each lid reads its own bank every time down to wavefront size
-            a[lid] = acc1+acc2+acc3+acc4;
+            a[lid] = OPERATOR4(acc1, acc2, acc3, acc4);
         }
         barrier(CLK_LOCAL_MEM_FENCE);
         // https://www.khronos.org/registry/OpenCL/sdk/1.0/docs/man/xhtml/barrier.html
@@ -73,11 +71,9 @@ inline __DATA_TYPE__ reduce_workgroup_wave_elimination_quarters(__local volatile
     if (wavefront_number == 0){
         // TODO: Determine at compile time.
         if (i==16){ // for-loop iterated past the wavefront limit because of uneven number of divisors for local_size (it hasn't executed. local memory is at state of 64 elements). We will run a single iteration to get to 32 elements.
-            __DATA_TYPE__ acc1;
-            __DATA_TYPE__ acc2;
-            acc1 = a[lid];
-            acc2 = a[lid+wavefront_size];
-            a[lid] = acc1+acc2;
+            __DATA_TYPE__ acc1 = a[lid];
+            __DATA_TYPE__ acc2 = a[lid+wavefront_size];
+            a[lid] = OPERATOR(acc1,acc2);
         }
         return reduce_wave(a[lid], a, wavefront_size);
     }
@@ -120,7 +116,7 @@ inline void full_reduction(__DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a,
         acc = NEUTRAL;
         for (size_t i=0; i < group_count; i += local_size){
             if (lid+i < group_count){
-                acc = acc + res[lid+i];
+                acc = OPERATOR(acc, res[lid+i]);
             }
         }
 

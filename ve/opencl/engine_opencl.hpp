@@ -80,7 +80,8 @@ public:
                  const std::string &source,
                  uint64_t codegen_hash,
                  const std::vector<uint64_t> &thread_stack,
-                 const std::vector<const bh_instruction *> &constants) override;
+                 const std::vector<const bh_instruction *> &constants,
+                 const std::pair<bh_opcode, bh_type> reduction_pair) override;
 
     // Copy 'bases' to the host (ignoring bases that isn't on the device)
     void copyToHost(const std::set<bh_base *> &bases) override;
@@ -101,7 +102,8 @@ public:
                      const jitk::SymbolTable &symbols,
                      const std::vector<uint64_t> &thread_stack,
                      uint64_t codegen_hash,
-                     std::stringstream &ss) override;
+                     std::stringstream &ss,
+                     const std::pair<bh_opcode, bh_type> reduction_pair) override;
 
     // Writes the OpenCL specific for-loop header
     void loopHeadWriter(const jitk::SymbolTable &symbols,

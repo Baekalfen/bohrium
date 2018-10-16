@@ -115,20 +115,40 @@ void write_operation(const bh_instruction &instr, const vector<string> &ops, str
             out << ops[0] << " = " << ops[1] << " <= " << ops[2] << ";";
             break;
         case BH_MAXIMUM:
-            out << ops[0] << " = " << ops[1] << " > " << ops[2] << " ? " << ops[1] << " : "
-                << ops[2] << ";";
+            if (opencl){
+                out << ops[0] << " = max(" << ops[1] << ", " << ops[2] << ");";
+            }
+            else{
+                out << ops[0] << " = " << ops[1] << " > " << ops[2] << " ? " << ops[1] << " : "
+                    << ops[2] << ";";
+            }
             break;
         case BH_MAXIMUM_REDUCE:
-            out << ops[0] << " = " << ops[0] << " > " << ops[1] << " ? " << ops[0] << " : "
-                << ops[1] << ";";
+            if (opencl){
+                out << ops[0] << " = max(" << ops[1] << ", " << ops[2] << ");";
+            }
+            else{
+                out << ops[0] << " = " << ops[0] << " > " << ops[1] << " ? " << ops[0] << " : "
+                    << ops[1] << ";";
+            }
             break;
         case BH_MINIMUM:
-            out << ops[0] << " = " << ops[1] << " < " << ops[2] << " ? " << ops[1] << " : "
-                << ops[2] << ";";
+            if (opencl){
+                out << ops[0] << " = min(" << ops[1] << ", " << ops[2] << ");";
+            }
+            else{
+                out << ops[0] << " = " << ops[1] << " < " << ops[2] << " ? " << ops[1] << " : "
+                    << ops[2] << ";";
+            }
             break;
         case BH_MINIMUM_REDUCE:
-            out << ops[0] << " = " << ops[0] << " < " << ops[1] << " ? " << ops[0] << " : "
-                << ops[1] << ";";
+            if (opencl){
+                out << ops[0] << " = min(" << ops[1] << ", " << ops[2] << ");";
+            }
+            else{
+                out << ops[0] << " = " << ops[0] << " < " << ops[1] << " ? " << ops[0] << " : "
+                    << ops[1] << ";";
+            }
             break;
         case BH_INVERT:
             if (instr.operand[0].base->type == bh_type::BOOL)
@@ -678,14 +698,11 @@ void write_other_instr(const Scope &scope, const bh_instruction &instr, stringst
         } else {
             scope.getName(view, ss);
             if (scope.isArray(view)) {
-                /* out << "// " << o << " " << bh_opcode_is_reduction(instr.opcode) << " " << instr.operand[1].ndim << endl; */
                 if (o == 0 and bh_opcode_is_reduction(instr.opcode) and instr.operand[1].ndim > 1) {
                     // If 'instr' is a reduction we have to ignore the reduced axis of the output array when
                     // reducing to a non-scalar
-                    /* out << "ko\n"; */
                     write_array_subscription(scope, view, ss, true, instr.sweep_axis());
                 } else {
-                    /* out << "lo\n"; */
                     write_array_subscription(scope, view, ss);
                 }
             }

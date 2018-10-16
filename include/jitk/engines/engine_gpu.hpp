@@ -78,13 +78,15 @@ public:
                              const SymbolTable &symbols,
                              const std::vector<uint64_t> &thread_stack,
                              uint64_t codegen_hash,
-                             std::stringstream &ss) = 0;
+                             std::stringstream &ss,
+                             const std::pair<bh_opcode, bh_type> reduction_pair) = 0;
 
     virtual void execute(const SymbolTable &symbols,
                          const std::string &source,
                          uint64_t codegen_hash,
                          const std::vector<uint64_t> &thread_stack,
-                         const std::vector<const bh_instruction *> &constants) = 0;
+                         const std::vector<const bh_instruction *> &constants,
+                         const std::pair<bh_opcode, bh_type> reduction_pair) = 0;
 
     void handleExecution(BhIR *bhir) override {
         using namespace std;
@@ -257,8 +259,6 @@ private:
         const vector<bh_base *> &v = symbols.getParams();
         copyToDevice(set<bh_base *>(v.begin(), v.end()));
 
-        cout << kernel._block_list << endl;
-
         // Create the constant vector
         vector<const bh_instruction *> constants;
         constants.reserve(symbols.constIDs().size());
@@ -266,26 +266,46 @@ private:
             constants.push_back(&(*instr));
         }
 
+
+
+        // Determine if this is a vector-reduction kernel. Only handle a single sweep, which is a reduction
+        std::pair<bh_opcode, bh_type> reduction_pair = std::make_pair(BH_NONE, bh_type::BOOL);
+        auto rank0 = kernel.getLocalSubBlocks().front();
+        auto sweeps = rank0->getSweeps();
+        if (sweeps.size() == 1) {
+            for(std::shared_ptr<const bh_instruction> sweep: sweeps) {
+                cout << sweep << endl;
+                if (bh_opcode_is_reduction(sweep->opcode)) {
+                    cout << "Reduction!" <<endl;
+
+                    for (const bh_view &view: sweep->getViews()) {
+                        reduction_pair = std::make_pair(sweep->opcode, view.base->type);
+                        break; // There are two views for a reduction, we just need the first, which is the destination.
+                    }
+                }
+            }
+        }
+
         const auto lookup = codegen_cache.lookup(kernel, symbols);
         if (not lookup.first.empty()) {
             // In debug mode, we check that the cached source code is correct
             #ifndef NDEBUG
                 stringstream ss;
-                writeKernel(kernel, symbols, thread_stack, lookup.second, ss);
+                writeKernel(kernel, symbols, thread_stack, lookup.second, ss, reduction_pair);
                 if (ss.str().compare(lookup.first) != 0) {
                     cout << "\nCached source code: \n" << lookup.first;
                     cout << "\nReal source code: \n" << ss.str();
                     assert(1 == 2);
                 }
             #endif
-            execute(symbols, lookup.first, lookup.second, thread_stack, constants);
+            execute(symbols, lookup.first, lookup.second, thread_stack, constants, reduction_pair);
         } else {
             const auto tcodegen = chrono::steady_clock::now();
             stringstream ss;
-            writeKernel(kernel, symbols, thread_stack, lookup.second, ss);
+            writeKernel(kernel, symbols, thread_stack, lookup.second, ss, reduction_pair);
             string source = ss.str();
             stat.time_codegen += chrono::steady_clock::now() - tcodegen;
-            execute(symbols, source, lookup.second, thread_stack, constants);
+            execute(symbols, source, lookup.second, thread_stack, constants, reduction_pair);
             codegen_cache.insert(std::move(source), kernel, symbols);
         }
     }

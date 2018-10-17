@@ -105,14 +105,14 @@ public:
                  uint64_t codegen_hash,
                  const std::vector<uint64_t> &thread_stack,
                  const std::vector<const bh_instruction*> &constants,
-                 const std::pair<bh_opcode, bh_type> reduction_pair);
+                 const std::pair<bh_opcode, bh_view> reduction_pair);
 
     void writeKernel(const jitk::LoopB &kernel,
                      const jitk::SymbolTable &symbols,
                      const std::vector<uint64_t> &thread_stack,
                      uint64_t codegen_hash,
                      std::stringstream &ss,
-                     const std::pair<bh_opcode, bh_type> reduction_pair) override;
+                     const std::pair<bh_opcode, bh_view> reduction_pair) override;
 
     // Delete a buffer
     void delBuffer(bh_base* base) override {

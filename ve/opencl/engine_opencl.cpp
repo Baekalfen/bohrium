@@ -324,7 +324,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
                            uint64_t codegen_hash,
                            const vector<uint64_t> &thread_stack,
                            const vector<const bh_instruction*> &constants,
-                           const std::pair<bh_opcode, bh_type> reduction_pair) {
+                           const std::pair<bh_opcode, bh_view> reduction_pair) {
     // Notice, we use a "pure" hash of `source` to make sure that the `source_filename` always
     // corresponds to `source` even if `codegen_hash` is buggy.
     uint64_t hash = util::hash(source);
@@ -420,9 +420,10 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     cl::Buffer *reduction_mem = nullptr;
     cl::Buffer *index_mem = nullptr;
     size_t dtype_size;
+    // Add arguments for first reduction-pass to the end of the regular kernel
     if (reduction_pair.first != BH_NONE) {
 
-        dtype_size = bh_type_size(reduction_pair.second);
+        dtype_size = bh_type_size(reduction_pair.second.base->type);
 
         reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(work_groups*dtype_size));
         index_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(1*4));
@@ -435,6 +436,31 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
 
     auto start_exec = chrono::steady_clock::now();
     queue.enqueueNDRangeKernel(opencl_kernel, cl::NullRange, ranges.first, ranges.second);
+
+    // Call a post-reduction kernel, which finalizes the reduction
+    if (reduction_pair.first != BH_NONE) {
+        i = 0;
+        cl::Kernel post_reduction = cl::Kernel(program, "reduce_2pass_postprocess");
+        post_reduction.setArg(i++, local_size*4, NULL); // Allocate local memory for reduction
+        post_reduction.setArg(i++, *reduction_mem);
+        post_reduction.setArg(i++, *getBuffer(reduction_pair.second.base));
+        // TODO: Maybe add offsets and stride? Would this ever be required for scalar reductions?
+        /* uint64_t t1 = (uint64_t) view->start; */
+        /* opencl_kernel.setArg(i++, t1); */
+        /* for (int j=0; j<view->ndim; ++j) { */
+        /*     uint64_t t2 = (uint64_t) view->stride[j]; */
+        /*     opencl_kernel.setArg(i++, t2); */
+        /* } */
+        bh_constant wg = bh_constant((unsigned int32_t) work_groups, bh_type::UINT32);
+        post_reduction.setArg(i++, wg.value.uint32);
+
+        const auto gsize_and_lsize = work_ranges(1024, 1024);
+        cout << "range: " << gsize_and_lsize.first << " " << gsize_and_lsize.second << endl;
+        auto ranges = make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
+        queue.enqueueNDRangeKernel(post_reduction, cl::NullRange, ranges.first, ranges.second);
+        cout << "enqueued post-reduction!" << endl;
+    }
+
     queue.finish();
     auto texec = chrono::steady_clock::now() - start_exec;
     stat.time_exec += texec;
@@ -520,12 +546,13 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                const vector<uint64_t> &thread_stack,
                                uint64_t codegen_hash,
                                stringstream &ss,
-                               const std::pair<bh_opcode, bh_type> reduction_pair) {
+                               const std::pair<bh_opcode, bh_view> reduction_pair) {
+    cout << "kernel blocks: " << kernel << endl;
 
     if (reduction_pair.first != BH_NONE) {
-        stringstream lala;
-        jitk::write_reduce_identity(reduction_pair.first, reduction_pair.second, lala);
-        ss << "#define NEUTRAL " << lala.str() << "\n";
+        ss << "#define NEUTRAL ";
+        jitk::write_reduce_identity(reduction_pair.first, reduction_pair.second.base->type, ss);
+        ss << "\n";
 
         ss << "#define OPERATOR(a,b) (";
         const std::vector<string> ops = std::vector<string> {"a", "b"};
@@ -567,7 +594,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << ")\n";
         ss << "\n";
 
-        ss << "#define __DATA_TYPE__ " << writeType(reduction_pair.second) <<"\n";
+        ss << "#define __DATA_TYPE__ " << writeType(reduction_pair.second.base->type) <<"\n";
         ss << "#include <kernel_dependencies/reduce_opencl.h>\n";
 
         // Write the need includes
@@ -590,9 +617,9 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
 
     if (is_reduction){
         util::spaces(ss, 4);
-        ss << "__DATA_TYPE__ element;\n"; // TODO: Get type from kernel._block_list._sweeps and insert neutral element
+        ss << "__DATA_TYPE__ element;\n";
         util::spaces(ss, 4);
-        ss << "__global __DATA_TYPE__* destination;\n"; // TODO: Get type from kernel._block_list._sweeps and insert neutral element
+        ss << "__global __DATA_TYPE__* destination;\n";
     }
 
     // Write the IDs of the threaded blocks
@@ -620,7 +647,8 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     if (is_reduction){
         // Inject neutral element, when there is no data in global memory to read
         ss << "    }else{\n        element = NEUTRAL;\n"
-           << "    }\n\n    full_reduction(element, a, res, index, destination);\n";
+           << "    }\n\n    reduce_2pass_preprocess(element, a, res     );\n"; // TODO: Fucking caching problem. Remove redundant whitespace
+           /* << "    }\n\n    full_reduction(element, a, res, index, destination);\n"; */
     }
     ss << "}\n\n";
 

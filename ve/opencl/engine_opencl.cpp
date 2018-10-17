@@ -642,7 +642,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
            << "    }\n\n    reduce_2pass_preprocess(element, a, res);\n";
     }
     ss << "}\n\n";
-
 }
 
 // Writes the OpenCL specific for-loop header

@@ -79,14 +79,14 @@ public:
                              const std::vector<uint64_t> &thread_stack,
                              uint64_t codegen_hash,
                              std::stringstream &ss,
-                             const std::pair<bh_opcode, bh_type> reduction_pair) = 0;
+                             const std::pair<bh_opcode, bh_view> reduction_pair) = 0;
 
     virtual void execute(const SymbolTable &symbols,
                          const std::string &source,
                          uint64_t codegen_hash,
                          const std::vector<uint64_t> &thread_stack,
                          const std::vector<const bh_instruction *> &constants,
-                         const std::pair<bh_opcode, bh_type> reduction_pair) = 0;
+                         const std::pair<bh_opcode, bh_view> reduction_pair) = 0;
 
     void handleExecution(BhIR *bhir) override {
         using namespace std;
@@ -269,7 +269,7 @@ private:
 
 
         // Determine if this is a vector-reduction kernel. Only handle a single sweep, which is a reduction
-        std::pair<bh_opcode, bh_type> reduction_pair = std::make_pair(BH_NONE, bh_type::BOOL);
+        std::pair<bh_opcode, bh_view> reduction_pair = std::make_pair(BH_NONE, bh_view());
         auto rank0 = kernel.getLocalSubBlocks().front();
         auto sweeps = rank0->getSweeps();
         if (sweeps.size() == 1) {
@@ -279,7 +279,7 @@ private:
                     cout << "Reduction!" <<endl;
 
                     for (const bh_view &view: sweep->getViews()) {
-                        reduction_pair = std::make_pair(sweep->opcode, view.base->type);
+                        reduction_pair = std::make_pair(sweep->opcode, view);
                         break; // There are two views for a reduction, we just need the first, which is the destination.
                     }
                 }

@@ -27,7 +27,7 @@ If not, see <http://www.gnu.org/licenses/>.
 #define wavefront_size 64
 #endif
 
-#define OPERATOR4(a,b,c,d) (OPERATOR(OPERATOR(a, b), OPERATOR(c, d)))
+#define OPERATOR4(a,b,c,d) (OPERATOR(a, OPERATOR(b, OPERATOR(c, d))))
 
 inline __DATA_TYPE__ reduce_wave(__DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a, size_t limit){
     size_t lid = get_local_id(0);
@@ -131,3 +131,44 @@ inline void full_reduction(__DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a,
 
 
 
+inline void reduce_2pass_preprocess(__DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a, __global volatile __DATA_TYPE__ *res){
+    size_t gid = get_global_id(0);
+    size_t lid = get_local_id(0);
+    size_t local_size = get_local_size(0);
+    size_t group_id = get_group_id(0);
+
+
+    a[lid] = acc;
+    // Barrier not needed, as data is always read from same wavefront -- not always true. Sub-function will call barrier if necessary.
+    reduce_workgroup_wave_elimination_quarters(a, local_size);
+
+    if (lid == 0){
+        res[group_id] = a[0];
+    }
+}
+
+
+__kernel void reduce_2pass_postprocess(__local volatile __DATA_TYPE__ *a, __global __DATA_TYPE__ *__restrict__ res, __global volatile __DATA_TYPE__ *final_res, __const unsigned int group_count){
+    // Loop through all values in result array. Eventhough there might be more than work-group size
+    size_t lid = get_local_id(0);
+    size_t local_size = get_local_size(0);
+
+    // This final reduction is only valid as single-workgroup kernel.
+    if (get_group_id(0) != 0){
+        return;
+    }
+
+    __DATA_TYPE__ acc = NEUTRAL;
+    for (size_t i=0; i < group_count; i += local_size){
+        if (lid+i < group_count){
+            acc = OPERATOR(acc, res[lid+i]);
+        }
+    }
+
+    a[lid] = acc;
+    reduce_workgroup_wave_elimination_quarters(a, local_size);
+
+    if (lid == 0){
+        final_res[0] = a[0];
+    }
+}

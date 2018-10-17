@@ -169,12 +169,26 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     if (is_reduction && bh_opcode_is_reduction(b.getInstr()->opcode)){
                         util::spaces(out, 4 + b.rank() * 4);
                         out << "element = ";
-                        const std::shared_ptr<const bh_instruction> instr = b.getInstr();
-                        bh_instruction assign_scalar = bh_instruction(BH_NONE, instr->operand);
+                        const bh_instruction instr = *b.getInstr();
+                        bh_instruction assign_scalar = bh_instruction(BH_NONE, instr.operand);
 
-                        const bh_view &view = instr->operand[1];
-                        scope.getName(view, out);
-                        write_array_subscription(scope, view, out);
+                        const bh_view &view = instr.operand[1];
+
+                        // TODO: The following is borrowed from void write_other_instr(const Scope &scope, const bh_instruction &instr, stringstream &out, bool opencl) and should be merged
+
+                        if (view.isConstant()) {
+                            const int64_t constID = scope.symbols.constID(instr);
+                            if (constID >= 0) {
+                                out << "c" << scope.symbols.constID(instr);
+                            } else {
+                                instr.constant.pprint(out, opencl);
+                            }
+                        } else {
+                            scope.getName(view, out);
+                            if (scope.isArray(view)) {
+                                write_array_subscription(scope, view, out);
+                            }
+                        }
                         out << ";" << endl;
                     }
                     else{

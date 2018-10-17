@@ -57,6 +57,9 @@ void write_opcodes_with_special_opencl_complex(const bh_instruction &instr, cons
 void write_operation(const bh_instruction &instr, const vector<string> &ops, stringstream &out, bool opencl) {
     switch (instr.opcode) {
         // Opcodes that are Complex/OpenCL agnostic
+        case BH_NONE:
+            out << ops[0] << " = " << ops[1] << ";";
+            break;
         case BH_BITWISE_AND:
             out << ops[0] << " = " << ops[1] << " & " << ops[2] << ";";
             break;
@@ -683,11 +686,14 @@ void write_accumulate_instr(const Scope &scope, const bh_instruction &instr, str
     write_operation(instr, ops, out, opencl);
 }
 
+} // Anon namespace
+
 void write_other_instr(const Scope &scope, const bh_instruction &instr, stringstream &out, bool opencl) {
     vector<string> ops;
     for (size_t o = 0; o < instr.operand.size(); ++o) {
         const bh_view &view = instr.operand[o];
         stringstream ss;
+
         if (view.isConstant()) {
             const int64_t constID = scope.symbols.constID(instr);
             if (constID >= 0) {
@@ -712,10 +718,9 @@ void write_other_instr(const Scope &scope, const bh_instruction &instr, stringst
     write_operation(instr, ops, out, opencl);
 }
 
-} // Anon namespace
-
 void write_instr(const Scope &scope, const bh_instruction &instr, stringstream &out, bool opencl) {
     if (bh_opcode_is_system(instr.opcode)) {
+        out <<"//system";
         return;
     }
     switch(instr.opcode) {

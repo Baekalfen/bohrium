@@ -32,8 +32,8 @@ void write_instr(const Scope &scope, const bh_instruction &instr, std::stringstr
 
 
 // Bypass scope and other autonomy to get bare instruction source code
-void write_operation(const bh_instruction &instr, const std::vector<std::string> &ops, std::stringstream &out, bool opencl);
-
+/* void write_operation(const bh_instruction &instr, const std::vector<std::string> &ops, std::stringstream &out, bool opencl); */
+void write_other_instr(const Scope &scope, const bh_instruction &instr, std::stringstream &out, bool opencl = false);
 
 // Write the neutral value of a reduction
 void write_reduce_identity(bh_opcode opcode, bh_type dtype, std::stringstream &out);

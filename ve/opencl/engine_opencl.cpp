@@ -235,7 +235,6 @@ pair<uint32_t, uint32_t> work_ranges(uint64_t work_group_size, int64_t block_siz
 }
 
 pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &thread_stack) const {
-    /* cout << "thread_stack " << thread_stack << endl; */
     const auto &b = thread_stack;
     switch (b.size()) {
         case 1: {
@@ -340,8 +339,6 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
 
     cl_uint i = 0;
     for (bh_base *base: symbols.getParams()) { // NB: the iteration order matters!
-        cout <<base->str()<<endl;
-        cout <<bh_type_size(base->type)<<endl;
         opencl_kernel.setArg(i++, *getBuffer(base));
     }
 
@@ -427,11 +424,8 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
 
         reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(work_groups*dtype_size));
         index_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(1*4));
-        // TODO: Zero index memory!
-        /* queue.enqueueFillBuffer(index_mem, 0, 0, work_groups*dtype_size, nullptr, nullptr); */
         opencl_kernel.setArg(i++, *reduction_mem);
         opencl_kernel.setArg(i++, local_size*4, NULL); // Allocate local memory for reduction
-        opencl_kernel.setArg(i++, *index_mem);
     }
 
     auto start_exec = chrono::steady_clock::now();
@@ -455,10 +449,8 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
         post_reduction.setArg(i++, wg.value.uint32);
 
         const auto gsize_and_lsize = work_ranges(1024, 1024);
-        cout << "range: " << gsize_and_lsize.first << " " << gsize_and_lsize.second << endl;
         auto ranges = make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
         queue.enqueueNDRangeKernel(post_reduction, cl::NullRange, ranges.first, ranges.second);
-        cout << "enqueued post-reduction!" << endl;
     }
 
     queue.finish();
@@ -647,12 +639,10 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     if (is_reduction){
         // Inject neutral element, when there is no data in global memory to read
         ss << "    }else{\n        element = NEUTRAL;\n"
-           << "    }\n\n    reduce_2pass_preprocess(element, a, res     );\n"; // TODO: Fucking caching problem. Remove redundant whitespace
-           /* << "    }\n\n    full_reduction(element, a, res, index, destination);\n"; */
+           << "    }\n\n    reduce_2pass_preprocess(element, a, res);\n";
     }
     ss << "}\n\n";
 
-    cout << "LALA" << endl;
 }
 
 // Writes the OpenCL specific for-loop header

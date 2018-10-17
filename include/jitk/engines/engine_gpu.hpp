@@ -274,10 +274,7 @@ private:
         auto sweeps = rank0->getSweeps();
         if (sweeps.size() == 1) {
             for(std::shared_ptr<const bh_instruction> sweep: sweeps) {
-                cout << sweep << endl;
                 if (bh_opcode_is_reduction(sweep->opcode)) {
-                    cout << "Reduction!" <<endl;
-
                     for (const bh_view &view: sweep->getViews()) {
                         reduction_pair = std::make_pair(sweep->opcode, view);
                         break; // There are two views for a reduction, we just need the first, which is the destination.

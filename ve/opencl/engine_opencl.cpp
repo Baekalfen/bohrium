@@ -412,7 +412,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     const auto ranges = NDRanges(thread_stack);
     size_t local_size = ranges.second.local_size();
     size_t work_groups = ranges.first.dim(0) / ranges.second.dim(0);
-    cout << "local_size " << local_size << " work_groups " << work_groups << endl;
+    /* cout << "local_size " << local_size << " work_groups " << work_groups << endl; */
 
     cl::Buffer *reduction_mem = nullptr;
     cl::Buffer *index_mem = nullptr;
@@ -421,11 +421,12 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     if (reduction_pair.first != BH_NONE) {
 
         dtype_size = bh_type_size(reduction_pair.second.base->type);
+        /* cout << "dtype size: " << dtype_size << endl; */
 
         reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(work_groups*dtype_size));
         index_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(1*4));
         opencl_kernel.setArg(i++, *reduction_mem);
-        opencl_kernel.setArg(i++, local_size*4, NULL); // Allocate local memory for reduction
+        opencl_kernel.setArg(i++, local_size*dtype_size, NULL); // Allocate local memory for reduction
     }
 
     auto start_exec = chrono::steady_clock::now();
@@ -435,7 +436,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     if (reduction_pair.first != BH_NONE) {
         i = 0;
         cl::Kernel post_reduction = cl::Kernel(program, "reduce_2pass_postprocess");
-        post_reduction.setArg(i++, local_size*4, NULL); // Allocate local memory for reduction
+        post_reduction.setArg(i++, local_size*dtype_size, NULL); // Allocate local memory for reduction
         post_reduction.setArg(i++, *reduction_mem);
         post_reduction.setArg(i++, *getBuffer(reduction_pair.second.base));
         // TODO: Maybe add offsets and stride? Would this ever be required for scalar reductions?
@@ -539,7 +540,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                uint64_t codegen_hash,
                                stringstream &ss,
                                const std::pair<bh_opcode, bh_view> reduction_pair) {
-    cout << "kernel blocks: " << kernel << endl;
+    /* cout << "kernel blocks: " << kernel << endl; */
 
     if (reduction_pair.first != BH_NONE) {
         ss << "#define NEUTRAL ";

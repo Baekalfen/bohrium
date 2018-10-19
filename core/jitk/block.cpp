@@ -299,12 +299,13 @@ bool LoopB::validation() const {
 uint64_t LoopB::localThreading() const {
     if (rank == 0 and _sweeps.size() == 1) {
        for(auto &sweep: _sweeps) {
+           // We were only looking for a single scalar-reduction
            if (not bh_opcode_is_reduction(sweep->opcode)) {
                return 0;
            }
        }
        if (not isSystemOnly()) {
-           cout << "We got a scalar-reduction!" <<endl;
+           // We got a scalar-reduction!
            return static_cast<uint64_t>(size);
        }
    } else {
@@ -502,7 +503,6 @@ pair<uint64_t, uint64_t> parallel_ranks(const LoopB &block, unsigned int max_dep
     pair<uint64_t, uint64_t> ret = make_pair(0, 0);
     const uint64_t thds = block.localThreading();
     --max_depth;
-    cout << "Threads: " << thds << endl;
     if (thds > 0) {
         if (max_depth > 0) {
             const size_t nblocks = block.getLocalSubBlocks().size();

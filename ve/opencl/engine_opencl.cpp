@@ -435,8 +435,11 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     // Call a post-reduction kernel, which finalizes the reduction
     if (reduction_pair.first != BH_NONE) {
         i = 0;
+
+        size_t reduction_local_size = 1024;
+
         cl::Kernel post_reduction = cl::Kernel(program, "reduce_2pass_postprocess");
-        post_reduction.setArg(i++, local_size*dtype_size, NULL); // Allocate local memory for reduction
+        post_reduction.setArg(i++, reduction_local_size*dtype_size, NULL); // Allocate local memory for reduction
         post_reduction.setArg(i++, *reduction_mem);
         post_reduction.setArg(i++, *getBuffer(reduction_pair.second.base));
         // TODO: Maybe add offsets and stride? Would this ever be required for scalar reductions?
@@ -449,7 +452,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
         bh_constant wg = bh_constant((unsigned int32_t) work_groups, bh_type::UINT32);
         post_reduction.setArg(i++, wg.value.uint32);
 
-        const auto gsize_and_lsize = work_ranges(1024, 1024);
+        const auto gsize_and_lsize = work_ranges(reduction_local_size, reduction_local_size);
         auto ranges = make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
         queue.enqueueNDRangeKernel(post_reduction, cl::NullRange, ranges.first, ranges.second);
     }

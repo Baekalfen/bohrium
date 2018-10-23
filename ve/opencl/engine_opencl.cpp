@@ -543,7 +543,13 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                uint64_t codegen_hash,
                                stringstream &ss,
                                const std::pair<bh_opcode, bh_view> reduction_pair) {
-    /* cout << "kernel blocks: " << kernel << endl; */
+    // Write the need includes
+    ss << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
+    ss << "#include <kernel_dependencies/complex_opencl.h>\n";
+    ss << "#include <kernel_dependencies/integer_operations.h>\n";
+    if (symbols.useRandom()) { // Write the random function
+        ss << "#include <kernel_dependencies/random123_opencl.h>\n";
+    }
 
     if (reduction_pair.first != BH_NONE) {
         ss << "#define NEUTRAL ";
@@ -592,17 +598,9 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
 
         ss << "#define __DATA_TYPE__ " << writeType(reduction_pair.second.base->type) <<"\n";
         ss << "#include <kernel_dependencies/reduce_opencl.h>\n";
-
-        // Write the need includes
-        ss << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
-        ss << "#include <kernel_dependencies/complex_opencl.h>\n";
-        ss << "#include <kernel_dependencies/integer_operations.h>\n";
-        if (symbols.useRandom()) { // Write the random function
-            ss << "#include <kernel_dependencies/random123_opencl.h>\n";
-        }
-        ss << "\n";
-
     }
+    ss << "\n";
+
 
     bool is_reduction = (reduction_pair.first != BH_NONE);
 

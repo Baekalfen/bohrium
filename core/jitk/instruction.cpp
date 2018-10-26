@@ -53,6 +53,30 @@ void write_opcodes_with_special_opencl_complex(const bh_instruction &instr, cons
     out << "\n";
 }
 
+// TODO: Probably shouldn't be redeclared here. Taken from engine_opencl.cpp
+// Return OpenCL API types, which are used inside the JIT kernels
+const std::string writeType(bh_type dtype) {
+    switch (dtype) {
+        case bh_type::BOOL:       return "uchar";
+        case bh_type::INT8:       return "char";
+        case bh_type::INT16:      return "short";
+        case bh_type::INT32:      return "int";
+        case bh_type::INT64:      return "long";
+        case bh_type::UINT8:      return "uchar";
+        case bh_type::UINT16:     return "ushort";
+        case bh_type::UINT32:     return "uint";
+        case bh_type::UINT64:     return "ulong";
+        case bh_type::FLOAT32:    return "float";
+        case bh_type::FLOAT64:    return "double";
+        case bh_type::COMPLEX64:  return "float2";
+        case bh_type::COMPLEX128: return "double2";
+        case bh_type::R123:       return "ulong2";
+        default:
+            std::cerr << "Unknown OpenCL type: " << bh_type_text(dtype) << std::endl;
+            throw std::runtime_error("Unknown OpenCL type");
+    }
+}
+
 // Write the 'instr' using the string in 'ops' as ops
 void write_operation(const bh_instruction &instr, const vector<string> &ops, stringstream &out, bool opencl) {
     switch (instr.opcode) {
@@ -119,7 +143,7 @@ void write_operation(const bh_instruction &instr, const vector<string> &ops, str
             break;
         case BH_MAXIMUM:
             if (opencl){
-                out << ops[0] << " = max(" << ops[1] << ", " << ops[2] << ");";
+                out << ops[0] << " = max(" << ops[1] << ", (" << writeType(instr.operand[0].base->type) << ")" << ops[2] << ");";
             }
             else{
                 out << ops[0] << " = " << ops[1] << " > " << ops[2] << " ? " << ops[1] << " : "
@@ -128,7 +152,7 @@ void write_operation(const bh_instruction &instr, const vector<string> &ops, str
             break;
         case BH_MAXIMUM_REDUCE:
             if (opencl){
-                out << ops[0] << " = max(" << ops[1] << ", " << ops[2] << ");";
+                out << ops[0] << " = max(" << ops[1] << ", (" << writeType(instr.operand[0].base->type) << ")" << ops[2] << ");";
             }
             else{
                 out << ops[0] << " = " << ops[0] << " > " << ops[1] << " ? " << ops[0] << " : "
@@ -137,7 +161,7 @@ void write_operation(const bh_instruction &instr, const vector<string> &ops, str
             break;
         case BH_MINIMUM:
             if (opencl){
-                out << ops[0] << " = min(" << ops[1] << ", " << ops[2] << ");";
+                out << ops[0] << " = min(" << ops[1] << ", (" << writeType(instr.operand[0].base->type) << ")" << ops[2] << ");";
             }
             else{
                 out << ops[0] << " = " << ops[1] << " < " << ops[2] << " ? " << ops[1] << " : "
@@ -146,7 +170,7 @@ void write_operation(const bh_instruction &instr, const vector<string> &ops, str
             break;
         case BH_MINIMUM_REDUCE:
             if (opencl){
-                out << ops[0] << " = min(" << ops[1] << ", " << ops[2] << ");";
+                out << ops[0] << " = min(" << ops[1] << ", (" << writeType(instr.operand[0].base->type) << ")" << ops[2] << ");";
             }
             else{
                 out << ops[0] << " = " << ops[0] << " < " << ops[1] << " ? " << ops[0] << " : "

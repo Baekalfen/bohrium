@@ -415,17 +415,19 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     /* cout << "local_size " << local_size << " work_groups " << work_groups << endl; */
 
     cl::Buffer *reduction_mem = nullptr;
-    cl::Buffer *index_mem = nullptr;
     size_t dtype_size;
     // Add arguments for first reduction-pass to the end of the regular kernel
     if (reduction_pair.first != BH_NONE) {
 
         dtype_size = bh_type_size(reduction_pair.second.base->type);
-        /* cout << "dtype size: " << dtype_size << endl; */
 
-        reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(work_groups*dtype_size));
-        index_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(1*4));
-        opencl_kernel.setArg(i++, *reduction_mem);
+        if (work_groups > 1){ // Allocate temporary memory for storing sub-results
+            reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(work_groups*dtype_size));
+            opencl_kernel.setArg(i++, *reduction_mem);
+        }
+        else{ // When there is only one work-group, we can calculate the reduction in one pass
+            opencl_kernel.setArg(i++, *getBuffer(reduction_pair.second.base));
+        }
         opencl_kernel.setArg(i++, local_size*dtype_size, NULL); // Allocate local memory for reduction
     }
 
@@ -433,7 +435,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     queue.enqueueNDRangeKernel(opencl_kernel, cl::NullRange, ranges.first, ranges.second);
 
     // Call a post-reduction kernel, which finalizes the reduction
-    if (reduction_pair.first != BH_NONE) {
+    if (reduction_pair.first != BH_NONE && work_groups > 1) {
         i = 0;
 
         size_t reduction_local_size = 1024;
@@ -462,9 +464,8 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     stat.time_exec += texec;
     stat.time_per_kernel[source_filename].register_exec_time(texec);
 
-    if (reduction_pair.first != BH_NONE) {
+    if (reduction_pair.first != BH_NONE && work_groups > 1) {
         malloc_cache.free(work_groups*dtype_size, reduction_mem);
-        malloc_cache.free(1*4, index_mem);
     }
 }
 

@@ -411,7 +411,8 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     /* cl::Buffer *buf = createBuffer(base); */
     const auto ranges = NDRanges(thread_stack);
     size_t local_size = ranges.second.local_size();
-    size_t work_groups = ranges.first.dim(0) / ranges.second.dim(0);
+    /* size_t work_groups = ranges.first.dim(0) / ranges.second.dim(0); // TODO: Multi-dim kernels! */
+    size_t work_groups = ranges.first.work_groups(ranges.second);
     /* cout << "local_size " << local_size << " work_groups " << work_groups << endl; */
 
     cl::Buffer *reduction_mem = nullptr;
@@ -442,8 +443,8 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
 
         cl::Kernel post_reduction = cl::Kernel(program, "reduce_2pass_postprocess");
         post_reduction.setArg(i++, reduction_local_size*dtype_size, NULL); // Allocate local memory for reduction
-        post_reduction.setArg(i++, *reduction_mem);
-        post_reduction.setArg(i++, *getBuffer(reduction_pair.second.base));
+        post_reduction.setArg(i++, *reduction_mem); // Sub-results
+        post_reduction.setArg(i++, *getBuffer(reduction_pair.second.base)); // Final result
         // TODO: Maybe add offsets and stride? Would this ever be required for scalar reductions?
         /* uint64_t t1 = (uint64_t) view->start; */
         /* opencl_kernel.setArg(i++, t1); */
@@ -451,7 +452,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
         /*     uint64_t t2 = (uint64_t) view->stride[j]; */
         /*     opencl_kernel.setArg(i++, t2); */
         /* } */
-        bh_constant wg = bh_constant((unsigned int32_t) work_groups, bh_type::UINT32);
+        bh_constant wg = bh_constant((uint64_t) work_groups, bh_type::UINT64);
         post_reduction.setArg(i++, wg.value.uint32);
 
         const auto gsize_and_lsize = work_ranges(reduction_local_size, reduction_local_size);
@@ -598,6 +599,15 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "\n";
 
         ss << "#define __DATA_TYPE__ " << writeType(reduction_pair.second.base->type) <<"\n";
+
+
+        const auto local_range = NDRanges(thread_stack).second;
+
+        ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
+        for (size_t i = 0; i < local_range.dimensions(); i++){
+            ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n";
+        }
+
         ss << "#include <kernel_dependencies/reduce_opencl.h>\n";
     }
     ss << "\n";

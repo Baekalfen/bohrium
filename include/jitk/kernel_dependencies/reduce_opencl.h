@@ -29,11 +29,39 @@ If not, see <http://www.gnu.org/licenses/>.
 
 #define OPERATOR4(a,b,c,d) (OPERATOR(a, OPERATOR(b, OPERATOR(c, d))))
 
-inline __DATA_TYPE__ reduce_wave(__DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a, size_t limit){
-    size_t lid = get_local_id(0);
-    // TODO: Try iterating backwards like AMD's example
+#ifndef DIM2
+#define DIM2 0
+#endif
+
+#ifndef DIM3
+#define DIM3 0
+#endif
+
+
+#ifdef KERNEL_1D
+#define flat_global_id get_global_id(0)
+#define flat_local_id get_local_id(0)
+#define flat_group_id get_group_id(0)
+#define flat_local_size DIM1
+#endif
+
+#ifdef KERNEL_2D
+#define flat_global_id (get_global_id(0) + get_global_size(0) * get_global_id(1))
+#define flat_local_id (get_local_id(0) + DIM1 * get_local_id(1))
+#define flat_group_id (get_group_id(0) + get_num_groups(0) * get_group_id(1))
+#define flat_local_size (DIM1 * DIM2)
+#endif
+
+#ifdef KERNEL_3D
+#define flat_global_id (get_global_id(0) + get_global_size(0) * get_global_id(1) + get_global_size(0) * get_global_size(1) * get_global_id(2))
+#define flat_local_id (get_local_id(0) + DIM1 * get_local_id(1) + DIM1 * DIM2 * get_local_id(2))
+#define flat_group_id (get_group_id(0) + get_num_groups(0) * get_group_id(1) + get_num_groups(0) * get_num_groups(1) * get_group_id(2))
+#define flat_local_size (DIM1 * DIM2 * DIM3)
+#endif
+
+inline __DATA_TYPE__ reduce_wave(size_t lid, __DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a){
     bool running = ((lid%2) == 0);
-    for (size_t i=1; i<=limit/2; i<<=1){
+    for (size_t i=1; i<=wavefront_size/2; i<<=1){
         if (running){
             running = (lid%(i<<2) == 0);
             acc = OPERATOR(acc, a[lid+i]);
@@ -43,11 +71,9 @@ inline __DATA_TYPE__ reduce_wave(__DATA_TYPE__ acc, __local volatile __DATA_TYPE
     return acc;
 }
 
-inline __DATA_TYPE__ reduce_workgroup_wave_elimination_quarters(__local volatile __DATA_TYPE__ *a, size_t limit){
-    size_t lid = get_local_id(0);
+inline __DATA_TYPE__ reduce_workgroup_wave_elimination_quarters(size_t lid, __local volatile __DATA_TYPE__ *a, size_t limit){
     barrier(CLK_LOCAL_MEM_FENCE); // Other reductions don't need this, but we are reading way out of the wavefront
 
-    // We unroll the for-loop once, to eliminate a lot of workgroups.
     size_t i;
     for (i=limit/4; i>=wavefront_size; i>>=2){
         bool running = lid < i;
@@ -58,7 +84,6 @@ inline __DATA_TYPE__ reduce_workgroup_wave_elimination_quarters(__local volatile
             __DATA_TYPE__ acc2 = a[i+lid];
             __DATA_TYPE__ acc3 = a[i*2+lid];
             __DATA_TYPE__ acc4 = a[i*3+lid];
-            // No more banking conflicts! Each lid reads its own bank every time down to wavefront size
             a[lid] = OPERATOR4(acc1, acc2, acc3, acc4);
         }
         barrier(CLK_LOCAL_MEM_FENCE);
@@ -66,7 +91,6 @@ inline __DATA_TYPE__ reduce_workgroup_wave_elimination_quarters(__local volatile
         // All work-items has to execute barriers
     }
 
-    /* size_t wavefront_size = 32; */
     size_t wavefront_number = lid / wavefront_size;
     if (wavefront_number == 0){
         // TODO: Determine at compile time.
@@ -75,24 +99,21 @@ inline __DATA_TYPE__ reduce_workgroup_wave_elimination_quarters(__local volatile
             __DATA_TYPE__ acc2 = a[lid+wavefront_size];
             a[lid] = OPERATOR(acc1,acc2);
         }
-        return reduce_wave(a[lid], a, wavefront_size);
+        return reduce_wave(lid, a[lid], a);
     }
     return -1;
 }
 
 
 inline void reduce_2pass_preprocess(__DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a, __global volatile __DATA_TYPE__ *res){
-    size_t gid = get_global_id(0);
-    size_t lid = get_local_id(0);
-    size_t local_size = get_local_size(0);
-    size_t group_id = get_group_id(0);
-
+    size_t lid = flat_local_id;
+    size_t local_size = flat_local_size;
 
     a[lid] = acc;
-    // Barrier not needed, as data is always read from same wavefront -- not always true. Sub-function will call barrier if necessary.
-    reduce_workgroup_wave_elimination_quarters(a, local_size);
+    reduce_workgroup_wave_elimination_quarters(lid, a, local_size);
 
     if (lid == 0){
+        size_t group_id = flat_group_id;
         res[group_id] = a[0];
     }
 }
@@ -104,9 +125,9 @@ __kernel void reduce_2pass_postprocess(__local volatile __DATA_TYPE__ *a, __glob
     size_t local_size = get_local_size(0);
 
     // This final reduction is only valid as single-workgroup kernel.
-    if (get_group_id(0) != 0){
-        return;
-    }
+    /* if (get_group_id(0) != 0){ */
+    /*     return; */
+    /* } */
 
     __DATA_TYPE__ acc = NEUTRAL;
     for (size_t i=0; i < group_count; i += local_size){
@@ -116,7 +137,7 @@ __kernel void reduce_2pass_postprocess(__local volatile __DATA_TYPE__ *a, __glob
     }
 
     a[lid] = acc;
-    reduce_workgroup_wave_elimination_quarters(a, local_size);
+    reduce_workgroup_wave_elimination_quarters(lid, a, local_size);
 
     if (lid == 0){
         final_res[0] = a[0];

@@ -4482,9 +4482,17 @@ public:
         return sizes_[dim];
     }
 
+    unsigned long work_groups(NDRange local_range) const {
+        assert (dimensions_ == local_range.dimensions());
+        unsigned long size = 1;
+        for (unsigned long i=0; i<dimensions_; i++){
+            size *= sizes_[i]/local_range.dim(i);
+        }
+        return size;
+    }
     unsigned long local_size() const {
         unsigned long size = 1;
-        for (int i=0; i<dimensions_; i++){
+        for (unsigned long i=0; i<dimensions_; i++){
             size *= sizes_[i];
         }
         return size;

@@ -323,7 +323,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
                            uint64_t codegen_hash,
                            const vector<uint64_t> &thread_stack,
                            const vector<const bh_instruction*> &constants,
-                           const std::pair<bh_opcode, bh_view> reduction_pair) {
+                           const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) {
     // Notice, we use a "pure" hash of `source` to make sure that the `source_filename` always
     // corresponds to `source` even if `codegen_hash` is buggy.
     uint64_t hash = util::hash(source);
@@ -418,16 +418,17 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     cl::Buffer *reduction_mem = nullptr;
     size_t dtype_size;
     // Add arguments for first reduction-pass to the end of the regular kernel
-    if (reduction_pair.first != BH_NONE) {
+    if (std::get<0>(sweep_info) != BH_NONE) {
 
-        dtype_size = bh_type_size(reduction_pair.second.base->type);
+        dtype_size = bh_type_size(std::get<1>(sweep_info).base->type);
 
-        if (work_groups > 1){ // Allocate temporary memory for storing sub-results
+        if (work_groups > 1 || bh_opcode_is_accumulate(std::get<0>(sweep_info))){ // Allocate temporary memory for storing sub-results
             reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(work_groups*dtype_size));
             opencl_kernel.setArg(i++, *reduction_mem);
         }
         else{ // When there is only one work-group, we can calculate the reduction in one pass
-            opencl_kernel.setArg(i++, *getBuffer(reduction_pair.second.base));
+            assert (bh_opcode_is_reduction(std::get<0>(sweep_info))); // not supported for scan yet
+            opencl_kernel.setArg(i++, *getBuffer(std::get<2>(sweep_info).base));
         }
         opencl_kernel.setArg(i++, local_size*dtype_size, NULL); // Allocate local memory for reduction
     }
@@ -436,28 +437,46 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     queue.enqueueNDRangeKernel(opencl_kernel, cl::NullRange, ranges.first, ranges.second);
 
     // Call a post-reduction kernel, which finalizes the reduction
-    if (reduction_pair.first != BH_NONE && work_groups > 1) {
+    if (std::get<0>(sweep_info) != BH_NONE && (work_groups > 1 || bh_opcode_is_accumulate(std::get<0>(sweep_info)))) {
         i = 0;
 
-        size_t reduction_local_size = 1024;
+        cl::Kernel post_sweep;
+        size_t sweep_local_size;
+        pair<cl::NDRange, cl::NDRange> post_ranges;
 
-        cl::Kernel post_reduction = cl::Kernel(program, "reduce_2pass_postprocess");
-        post_reduction.setArg(i++, reduction_local_size*dtype_size, NULL); // Allocate local memory for reduction
-        post_reduction.setArg(i++, *reduction_mem); // Sub-results
-        post_reduction.setArg(i++, *getBuffer(reduction_pair.second.base)); // Final result
-        // TODO: Maybe add offsets and stride? Would this ever be required for scalar reductions?
-        /* uint64_t t1 = (uint64_t) view->start; */
-        /* opencl_kernel.setArg(i++, t1); */
-        /* for (int j=0; j<view->ndim; ++j) { */
-        /*     uint64_t t2 = (uint64_t) view->stride[j]; */
-        /*     opencl_kernel.setArg(i++, t2); */
-        /* } */
+        if (bh_opcode_is_accumulate(std::get<0>(sweep_info))){
+            sweep_local_size = local_size;
+            post_ranges = NDRanges(thread_stack);
+            post_sweep = cl::Kernel(program, "scan_2pass_postprocess");
+
+            post_sweep.setArg(i++, *getBuffer(std::get<2>(sweep_info).base)); // Output array
+            bh_constant len = bh_constant((uint64_t) std::get<1>(sweep_info).shape[0], bh_type::UINT64);
+            post_sweep.setArg(i++, len.value.uint32);
+            post_sweep.setArg(i++, *getBuffer(std::get<1>(sweep_info).base)); // Input array
+        }
+        else{
+            sweep_local_size = 1024;
+            pair<uint32_t, uint32_t> gsize_and_lsize = work_ranges(sweep_local_size, sweep_local_size);
+            post_ranges = make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
+            post_sweep = cl::Kernel(program, "reduce_2pass_postprocess");
+
+            // TODO: Maybe add offsets and stride? Would this ever be required for scalar reductions?
+            /* uint64_t t1 = (uint64_t) view->start; */
+            /* opencl_kernel.setArg(i++, t1); */
+            /* for (int j=0; j<view->ndim; ++j) { */
+            /*     uint64_t t2 = (uint64_t) view->stride[j]; */
+            /*     opencl_kernel.setArg(i++, t2); */
+            /* } */
+            post_sweep.setArg(i++, *getBuffer(std::get<2>(sweep_info).base)); // Input array
+        }
+
+        post_sweep.setArg(i++, sweep_local_size*dtype_size, NULL); // Allocate local memory for reduction
+        post_sweep.setArg(i++, *reduction_mem); // Sub-results
+
         bh_constant wg = bh_constant((uint64_t) work_groups, bh_type::UINT64);
-        post_reduction.setArg(i++, wg.value.uint32);
+        post_sweep.setArg(i++, wg.value.uint32);
 
-        const auto gsize_and_lsize = work_ranges(reduction_local_size, reduction_local_size);
-        auto ranges = make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
-        queue.enqueueNDRangeKernel(post_reduction, cl::NullRange, ranges.first, ranges.second);
+        queue.enqueueNDRangeKernel(post_sweep, cl::NullRange, post_ranges.first, post_ranges.second);
     }
 
     queue.finish();
@@ -465,7 +484,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     stat.time_exec += texec;
     stat.time_per_kernel[source_filename].register_exec_time(texec);
 
-    if (reduction_pair.first != BH_NONE && work_groups > 1) {
+    if (std::get<0>(sweep_info) != BH_NONE && work_groups > 1) {
         malloc_cache.free(work_groups*dtype_size, reduction_mem);
     }
 }
@@ -544,7 +563,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                const vector<uint64_t> &thread_stack,
                                uint64_t codegen_hash,
                                stringstream &ss,
-                               const std::pair<bh_opcode, bh_view> reduction_pair) {
+                               const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) {
     // Write the need includes
     ss << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
     ss << "#include <kernel_dependencies/complex_opencl.h>\n";
@@ -553,15 +572,15 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "#include <kernel_dependencies/random123_opencl.h>\n";
     }
 
-    if (reduction_pair.first != BH_NONE) {
+    if (std::get<0>(sweep_info) != BH_NONE) {
         ss << "#define NEUTRAL ";
-        jitk::write_reduce_identity(reduction_pair.first, reduction_pair.second.base->type, ss);
+        jitk::sweep_identity(std::get<0>(sweep_info), std::get<1>(sweep_info).base->type).pprint(ss, true);
         ss << "\n";
 
         ss << "#define OPERATOR(a,b) (";
         const std::vector<string> ops = std::vector<string> {"a", "b"};
-        /* jitk::write_operation(bh_instruction(reduction_pair.first, views), ops, ss, true); */
-        switch (reduction_pair.first) {
+        /* jitk::write_operation(bh_instruction(sweep_info.first, views), ops, ss, true); */
+        switch (std::get<0>(sweep_info)) {
             case BH_BITWISE_AND_REDUCE:
                 ss << ops[0] << " & " << ops[1];
                 break;
@@ -586,9 +605,11 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             case BH_MINIMUM_REDUCE:
                 ss <<  "min(" << ops[0] << ", " << ops[1] << ")";
                 break;
+            case BH_ADD_ACCUMULATE:
             case BH_ADD_REDUCE:
                 ss << ops[0] << " + " << ops[1];
                 break;
+            case BH_MULTIPLY_ACCUMULATE:
             case BH_MULTIPLY_REDUCE:
                 ss << ops[0] << " * " << ops[1];
                 break;
@@ -598,7 +619,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << ")\n";
         ss << "\n";
 
-        ss << "#define __DATA_TYPE__ " << writeType(reduction_pair.second.base->type) <<"\n";
+        ss << "#define __DATA_TYPE__ " << writeType(std::get<1>(sweep_info).base->type) <<"\n";
 
 
         const auto local_range = NDRanges(thread_stack).second;
@@ -613,18 +634,20 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     ss << "\n";
 
 
-    bool is_reduction = (reduction_pair.first != BH_NONE);
+    bool is_sweep = (std::get<0>(sweep_info) != BH_NONE);
 
     // Write the header of the execute function
     ss << "__kernel void execute_" << codegen_hash;
-    writeKernelFunctionArguments(symbols, ss, "__global", is_reduction);
+    writeKernelFunctionArguments(symbols, ss, "__global", is_sweep);
     ss << " {\n";
 
-    if (is_reduction){
+    if (is_sweep){
         util::spaces(ss, 4);
         ss << "__DATA_TYPE__ element;\n";
-        util::spaces(ss, 4);
-        ss << "__global __DATA_TYPE__* destination;\n";
+        if (bh_opcode_is_reduction(std::get<0>(sweep_info))){
+            util::spaces(ss, 4);
+            ss << "__global __DATA_TYPE__* destination;\n";
+        }
     }
 
     // Write the IDs of the threaded blocks
@@ -633,7 +656,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "// The IDs of the threaded blocks:\n";
         for (unsigned int i=0; i < thread_stack.size(); ++i) {
             util::spaces(ss, 4);
-            if (is_reduction && i == 0){
+            if (is_sweep && i == 0){
                 // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
                 ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
                    << "if (g" << i << " < " << thread_stack[i] << ") { // Prevent overflow in calculations, but keep thread for reduction\n";
@@ -647,9 +670,9 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     }
 
     // Write inner blocks
-    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, is_reduction);
+    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, is_sweep);
 
-    if (is_reduction){
+    if (is_sweep){
         // Inject neutral element, when there is no data in global memory to read
         ss << "    }else{\n        element = NEUTRAL;\n"
            << "    }\n\n    reduce_2pass_preprocess(element, a, res);\n";
@@ -666,12 +689,6 @@ void EngineOpenCL::loopHeadWriter(const jitk::SymbolTable &symbols,
     // Write the for-loop header
     std::string itername; { std::stringstream t; t << "i" << block.rank; itername = t.str(); }
     if (thread_stack.size() > static_cast<size_t >(block.rank)) {
-        if (block._sweeps.size() != 0){
-           for(auto &sweep: block._sweeps) {
-               assert (bh_opcode_is_reduction(sweep->opcode));
-           }
-        }
-
         if (num_threads > 0 and thread_stack[block.rank] > 0) {
             if (num_threads_round_robin) {
                 out << "for (" << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << "; "

@@ -29,7 +29,7 @@ namespace jitk {
 void Engine::writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
                                           std::stringstream &ss,
                                           const char *array_type_prefix,
-                                          const bool is_reduction) {
+                                          const bool is_sweep) {
     // We create the comma separated list of args and saves it in `stmp`
     std::stringstream stmp;
     for (size_t i = 0; i < symbols.getParams().size(); ++i) {
@@ -55,7 +55,7 @@ void Engine::writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
         }
     }
 
-    if (is_reduction){
+    if (is_sweep){
         stmp << "__global volatile __DATA_TYPE__ *res, __local volatile __DATA_TYPE__ *a, ";
     }
 
@@ -75,7 +75,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
                         const std::vector<uint64_t> &thread_stack,
                         bool opencl,
                         std::stringstream &out,
-                        bool is_reduction) {
+                        bool is_sweep) {
 
     if (kernel.isSystemOnly()) {
         out << "// Removed loop with only system instructions\n";
@@ -129,7 +129,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
                         write_array_subscription(scope, view, out);
                         out << ";";
                         out << "\n";
-                        if (is_reduction && bh_opcode_is_reduction(instr->opcode)){
+                        if (is_sweep && bh_opcode_is_sweep(instr->opcode)){
                             util::spaces(post_script, 8 + kernel.rank * 4);
                             post_script << "destination = a" << symbols.baseID(view.base) << ";\n";
                         } else
@@ -166,7 +166,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
         for (const Block &b: kernel._block_list) {
             if (b.isInstr()) { // Finally, let's write the instruction
                 if (b.getInstr() != nullptr and not bh_opcode_is_system(b.getInstr()->opcode)) {
-                    if (is_reduction && bh_opcode_is_reduction(b.getInstr()->opcode)){
+                    if (is_sweep && bh_opcode_is_sweep(b.getInstr()->opcode)){
                         util::spaces(out, 4 + b.rank() * 4);
                         out << "element = ";
                         const bh_instruction instr = *b.getInstr();
@@ -199,7 +199,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
             } else {
                 util::spaces(out, 4 + b.rank() * 4);
                 loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out);
-                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_reduction);
+                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_sweep);
                 util::spaces(out, 4 + b.rank() * 4);
                 out << "}\n";
             }
@@ -224,7 +224,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
             } else {
                 util::spaces(out, 4 + b.rank() * 4);
                 loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out);
-                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_reduction);
+                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_sweep);
                 util::spaces(out, 4 + b.rank() * 4);
                 out << "}\n";
             }

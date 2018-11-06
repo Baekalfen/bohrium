@@ -119,7 +119,7 @@ inline void reduce_2pass_preprocess(__DATA_TYPE__ acc, __local volatile __DATA_T
 }
 
 
-__kernel void reduce_2pass_postprocess(__local volatile __DATA_TYPE__ *a, __global __DATA_TYPE__ *__restrict__ res, __global volatile __DATA_TYPE__ *final_res, __const unsigned int group_count){
+__kernel void reduce_2pass_postprocess(__global volatile __DATA_TYPE__ *final_res, __local volatile __DATA_TYPE__ *a, __global __DATA_TYPE__ *__restrict__ res, __const unsigned int group_count){
     // Loop through all values in result array. Eventhough there might be more than work-group size
     size_t lid = get_local_id(0);
     size_t local_size = get_local_size(0);
@@ -143,3 +143,83 @@ __kernel void reduce_2pass_postprocess(__local volatile __DATA_TYPE__ *a, __glob
         final_res[0] = a[0];
     }
 }
+
+
+
+////////////////////////
+// Scan operations
+////////////////////////
+
+
+inline void up_sweep_workgroup(__local __DATA_TYPE__* a, size_t local_size){
+    size_t lid = get_local_id(0);
+
+    for (size_t stride = 1; stride <= local_size; stride <<= 1) {
+        size_t i = (lid + 1) * stride * 2 - 1;
+        if (i < local_size) {
+            a[i] = OPERATOR(a[i], a[i - stride]);
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+}
+
+inline void down_sweep_workgroup(__local __DATA_TYPE__* a, size_t local_size){
+    size_t lid = get_local_id(0);
+
+    for (size_t stride = local_size >> 1; stride > 0; stride >>= 1) {
+        size_t i = (lid + 1) * stride * 2 - 1;
+        if (i + stride < local_size) {
+            a[i + stride] = OPERATOR(a[i + stride], a[i]);
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+}
+
+// Inclusive scan. We keep the last element: https://en.wikipedia.org/wiki/Prefix_sum
+// Exclusive is not accessible through Bohrium
+__kernel void scan_2pass_postprocess( __global __DATA_TYPE__ *outA, __const unsigned int length, __global __DATA_TYPE__ *inA, __local __DATA_TYPE__ *a, __global __DATA_TYPE__ *res, __const unsigned int group_count){
+    size_t gid = get_global_id(0);
+    size_t lid = get_local_id(0);
+    size_t local_size = get_local_size(0);
+
+    // TODO: This really needs optimization! Run it in another kernel, take several chunks in each workgroup, or something else
+    // Find prefix for work-group
+    __DATA_TYPE__ prefix = NEUTRAL;
+    for (size_t i=0; i < get_group_id(0); i += local_size){
+        if (lid+i < get_group_id(0)){
+            prefix = OPERATOR(prefix, res[lid+i]);
+        }
+    }
+
+    a[lid] = prefix;
+    reduce_workgroup_wave_elimination_quarters(lid, a, local_size);
+    barrier(CLK_LOCAL_MEM_FENCE);
+    prefix = a[0];
+
+    // Load in data
+    __DATA_TYPE__ acc;
+    if (gid > length-1) {
+        acc = NEUTRAL; // Neutral element, when there is no data in global memory to read
+        // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the scan
+    }
+    else{
+        acc = inA[gid];
+    }
+
+    outA[gid] = acc;
+    return;
+
+    // Do scan
+    a[lid] = acc;
+    barrier(CLK_LOCAL_MEM_FENCE);
+    up_sweep_workgroup(a, local_size);
+    down_sweep_workgroup(a, local_size);
+
+    // Add the prefix to scan result
+    if (gid < length) {
+        outA[gid] = OPERATOR(a[lid], prefix);
+    }
+}
+
+
+

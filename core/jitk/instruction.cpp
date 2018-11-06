@@ -805,34 +805,6 @@ bh_constant sweep_identity(bh_opcode opcode, bh_type dtype) {
     }
 }
 
-void write_reduce_identity(bh_opcode opcode, bh_type dtype, stringstream &out) {
-    switch (opcode) {
-        case BH_ADD_REDUCE:
-        case BH_BITWISE_OR_REDUCE:
-        case BH_BITWISE_XOR_REDUCE:
-        case BH_LOGICAL_OR_REDUCE:
-        case BH_LOGICAL_XOR_REDUCE:
-            out << "0";
-            break;
-        case BH_MULTIPLY_REDUCE:
-            out << "1";
-            break;
-        case BH_BITWISE_AND_REDUCE:
-        case BH_LOGICAL_AND_REDUCE:
-            out << "~0";
-            break;
-        case BH_MAXIMUM_REDUCE:
-            dtype_min(dtype, out);
-            break;
-        case BH_MINIMUM_REDUCE:
-            dtype_max(dtype, out);
-            break;
-        default:
-            cout << "write_reduce_identity: unsupported operation: " << bh_opcode_text(opcode) << endl;
-            throw runtime_error("write_reduce_identity: unsupported operation");
-    }
-}
-
 vector<bh_instruction*> remove_non_computed_system_instr(vector<bh_instruction> &instr_list, set<bh_base *> &frees) {
     vector<bh_instruction*> ret;
     set<const bh_base*> computes;

@@ -263,6 +263,7 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const jitk::LoopB block, u
     const auto dy = comp.config.defaultGet<cl_ulong>(kernel_name + "_dy", FIXME);
     const auto dz = comp.config.defaultGet<cl_ulong>(kernel_name + "_dz", FIXME);
     cout << kernel_name + "_dx " << dx << " " << dy << " " << dz << endl;
+    /* cout << "Kernel name and dims " << kernel_name + "_dx " << dx << " " << dy << " " << dz << endl; */
 
     /* cout << "LOOKKADOASKOSDF " << comp.config.defaultGet<cl_ulong>("custom_thingy", 123) << endl; */
     const auto &b = thread_stack;

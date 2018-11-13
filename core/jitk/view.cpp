@@ -39,6 +39,8 @@ void write_array_index(const Scope &scope, const bh_view &view, stringstream &ou
         }
     }
 
+    cout << "hidden axis: " << hidden_axis << endl;
+
     if (scope.symbols.strides_as_var and scope.symbols.existOffsetStridesID(view)) {
         // Write view.start using the offset-and-strides variable
         out << "vo" << scope.symbols.offsetStridesID(view);

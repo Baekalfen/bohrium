@@ -110,7 +110,6 @@ void Engine::writeBlock(const SymbolTable &symbols,
     vector<const bh_view *> srio = jitk::scalar_replaced_input_only(kernel, parent_scope, local_tmps);
     jitk::Scope scope(symbols, parent_scope, local_tmps, scalar_replaced_reduction_outputs, srio);
 
-    stringstream post_script;
     // Write temporary and scalar replaced array declarations
     vector<const bh_view *> scalar_replaced_to_write_back;
     for (const jitk::Block &block: kernel._block_list) {
@@ -124,16 +123,15 @@ void Engine::writeBlock(const SymbolTable &symbols,
                         out << "\n";
                     } else if (scope.isScalarReplaced(view)) {
                         util::spaces(out, 8 + kernel.rank * 4);
-                            scope.writeDeclaration(view, writeType(view.base->type), out);
-                            out << " " << scope.getName(view) << " = a" << symbols.baseID(view.base);
+                        scope.writeDeclaration(view, writeType(view.base->type), out);
+                        out << " " << scope.getName(view) << " = a" << symbols.baseID(view.base);
                         write_array_subscription(scope, view, out);
                         out << ";";
                         out << "\n";
-                        if (is_sweep && bh_opcode_is_sweep(instr->opcode)){
-                            util::spaces(post_script, 8 + kernel.rank * 4);
-                            post_script << "destination = a" << symbols.baseID(view.base) << ";\n";
-                        } else
-                        if (scope.isScalarReplaced_RW(view.base)) {
+
+                        // TODO: Also don't allocate the array
+                        // We don't want a writeback to a temp array in global memory on sweeps
+                        if (!bh_opcode_is_sweep(instr->opcode) && scope.isScalarReplaced_RW(view.base)) {
                             scalar_replaced_to_write_back.push_back(&view);
                         }
                     }
@@ -166,7 +164,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
         for (const Block &b: kernel._block_list) {
             if (b.isInstr()) { // Finally, let's write the instruction
                 if (b.getInstr() != nullptr and not bh_opcode_is_system(b.getInstr()->opcode)) {
-                    if (is_sweep && bh_opcode_is_sweep(b.getInstr()->opcode)){
+                    if (is_sweep && bh_opcode_is_sweep(b.getInstr()->opcode) && b.rank() == 1){
                         util::spaces(out, 4 + b.rank() * 4);
                         out << "element = ";
                         const bh_instruction instr = *b.getInstr();
@@ -241,9 +239,6 @@ void Engine::writeBlock(const SymbolTable &symbols,
         scope.getName(*view, out);
         out << ";\n";
     }
-
-
-    out << post_script.str() << endl;
 }
 
 void Engine::setConstructorFlag(std::vector<bh_instruction *> &instr_list, std::set<bh_base *> &constructed_arrays) {

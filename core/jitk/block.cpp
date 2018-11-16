@@ -298,15 +298,41 @@ bool LoopB::validation() const {
 
 uint64_t LoopB::localThreading() const {
     if (rank == 0 and _sweeps.size() == 1 and (not isSystemOnly())){
-       // We got an outer sweep!
-       return static_cast<uint64_t>(size);
-   } else {
-       if (_sweeps.size() == 0 and not isSystemOnly()) {
-           assert (size >= 0);
-           return static_cast<uint64_t>(size);
-       }
-   }
-   return 0;
+
+        for(std::shared_ptr<const bh_instruction> sweep: _sweeps) {
+            auto views = sweep->getViews();
+
+            // TODO: Fix this abomination
+            bh_view r;
+            bh_view l;
+            int i = 0;
+            for (const bh_view &view: views) {
+                if (i==0){
+                    r = view;
+                }
+                else{
+                    l = view;
+                }
+                i++;
+            }
+
+            if (bh_opcode_is_accumulate(sweep->opcode) ||
+                    (bh_opcode_is_reduction(sweep->opcode) &&
+                     r.ndim == 1 && r.shape[0] == 1 &&
+                     l.ndim == 1 && l.shape[0] > 1)) {
+                // We got a scalar sweep!
+                return static_cast<uint64_t>(size);
+            }
+        }
+
+        /* return static_cast<uint64_t>(size); */
+    } else {
+        if (_sweeps.size() == 0 and not isSystemOnly()) {
+            assert (size >= 0);
+            return static_cast<uint64_t>(size);
+        }
+    }
+    return 0;
 }
 
 string LoopB::pprint(const char *newline) const {

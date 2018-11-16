@@ -50,7 +50,8 @@ public:
                          uint64_t codegen_hash,
                          const std::vector<const bh_instruction *> &constants) = 0;
 
-    void handleExecution(BhIR *bhir) override;
+    // TODO: Why can't this have 'bool opencl_scalar_reduction=false'???
+    void handleExecution(BhIR *bhir, bool opencl_scalar_reduction) override;
 
     void handleExtmethod(BhIR *bhir) override;
 };

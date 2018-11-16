@@ -89,14 +89,17 @@ std::vector<InstrPtr> order_sweep_by_origin_id(const std::set<InstrPtr> &sweep_s
 void add_identity_block(LoopB &loop, int64_t &origin_count) {
     vector<Block> ret;
     for (Block &block: loop._block_list) {
+
         if (block.isInstr()) {
             ret.push_back(block);
             continue;
         }
+
         add_identity_block(block.getLoop(), origin_count);
 
         const auto ordered_sweeps = order_sweep_by_origin_id(block.getLoop().getSweeps());
         for (const InstrPtr &sweep_instr: ordered_sweeps) {
+
             bh_instruction identity_instr(BH_IDENTITY, {sweep_instr->operand[0]});
             identity_instr.operand.resize(2);
             identity_instr.operand[1].base = nullptr;
@@ -142,6 +145,17 @@ vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_coun
 
         const auto ordered_sweeps = order_sweep_by_origin_id(block.getLoop().getSweeps());
         for (const InstrPtr &sweep_instr: ordered_sweeps) {
+            // We don't want the identity for a rank0 scalar reduction
+            if (block.rank() == 0 &&
+                sweep_instr->sweep_axis() == 0 &&
+                bh_opcode_is_reduction(sweep_instr->opcode) &&
+                sweep_instr->ndim() == 1 &&
+                sweep_instr->operand[0].shape[0] == 1
+                ) {
+                /* cout << "SKIPPING!" << endl; */
+                continue;
+            }
+
             bh_instruction identity_instr(BH_IDENTITY, {sweep_instr->operand[0]});
             identity_instr.operand.resize(2);
             identity_instr.operand[1].base = nullptr;
@@ -171,6 +185,7 @@ vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_coun
         kernel.metadataUpdate();
         ret.emplace_back(std::move(kernel));
     }
+
     return ret;
 }
 
@@ -256,6 +271,7 @@ vector<LoopB> get_kernel_list(const vector<bh_instruction*> &instr_list, const C
     } else {
         ret = add_identity_block(block_list, origin_count);
     }
+
     return ret;
 }
 

@@ -69,7 +69,7 @@ SymbolTable::SymbolTable(const LoopB &kernel,
             _useRandom = true;
         }
     }
-    
+
     // Add frees to the base map since the are not in `kernel.getAllInstr()`
     for (const bh_base *base: kernel.getAllFrees()) {
         _base_map.insert(std::make_pair(base, _base_map.size()));

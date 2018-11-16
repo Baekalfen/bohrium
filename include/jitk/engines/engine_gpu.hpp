@@ -88,7 +88,7 @@ public:
                          const std::vector<const bh_instruction *> &constants,
                          const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) = 0;
 
-    void handleExecution(BhIR *bhir) override {
+    void handleExecution(BhIR *bhir, bool opencl_scalar_reduction=false) override {
         using namespace std;
 
         const auto texecution = chrono::steady_clock::now();
@@ -144,6 +144,8 @@ public:
             // We can skip a lot of steps if the kernel does no computation
             const bool kernel_is_computing = not kernel.isSystemOnly();
 
+            cout << "SDOJFSDFOJSD\n" << kernel << endl;
+
             // Find the parallel blocks
             std::vector<uint64_t> thread_stack;
             if (kernel._block_list.size() == 1 and kernel_is_computing) {
@@ -164,8 +166,10 @@ public:
 
             // We might have to offload the execution to the CPU
             if (thread_stack.empty()) {
+                cout << "CPU OffLoading" << endl;
                 cpuOffload(comp, bhir, kernel, symbols);
             } else {
+                cout << "GPGPU OffLoading" << endl;
                 // Let's execute the kernel
                 if (kernel_is_computing) {
                     executeKernel(kernel, symbols, thread_stack);
@@ -278,29 +282,25 @@ private:
         std::tuple<bh_opcode, bh_view, bh_view> sweep_info = std::make_tuple(BH_NONE, bh_view(), bh_view());
         auto rank0 = kernel.getLocalSubBlocks().front();
         auto sweeps = rank0->getSweeps();
-        if (sweeps.size() == 1) {
+        if (sweeps.size() == 1) { // TODO: Support multiple sweeps in same rank
             for(std::shared_ptr<const bh_instruction> sweep: sweeps) {
-                if (bh_opcode_is_sweep(sweep->opcode)) {
-                    auto views = sweep->getViews();
-                    /* auto a = views.begin(); */
-                    /* bh_view l = std::next(a, 1); */
-                    /* bh_view r = std::next(a, 1); */
+                auto views = sweep->getViews();
 
-                    bh_view r;
-                    bh_view l;
-                    int i = 0;
-                    for (const bh_view &view: views) {
-                        if (i==0){
-                            r = view;
-                        }
-                        else{
-                            l = view;
-                        }
-                        i++;
-                        /* break; // There are two views for a reduction, we just need the first, which is the destination. */
+                // TODO: Fix this abomination
+                bh_view r;
+                bh_view l;
+                int i = 0;
+                for (const bh_view &view: views) {
+                    if (i==0){
+                        r = view;
                     }
-                    sweep_info = std::make_tuple(sweep->opcode, l, r);
+                    else{
+                        l = view;
+                    }
+                    i++;
                 }
+
+                sweep_info = std::make_tuple(sweep->opcode, l, r);
             }
         }
 

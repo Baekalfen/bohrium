@@ -128,7 +128,7 @@ public:
 protected:
 
     /** Handle execution of the `bhir` */
-    virtual void handleExecution(BhIR *bhir) = 0;
+    virtual void handleExecution(BhIR *bhir, bool opencl_scalar_reduction=false) = 0;
 
     /** Handle extension methods in the `bhir` */
     virtual void handleExtmethod(BhIR *bhir) = 0;
@@ -142,7 +142,7 @@ protected:
     virtual void writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
                                               std::stringstream &ss,
                                               const char *array_type_prefix,
-                                              const bool is_reduction = false);
+                                              const bool is_sweep = false);
 
     /** Writes a kernel, which corresponds to a set of for-loop nest.
      *

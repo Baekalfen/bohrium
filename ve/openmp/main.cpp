@@ -141,7 +141,8 @@ void Impl::execute(BhIR *bhir) {
         engine.handleExtmethod(bhir);
 
         // And then the regular instructions
-        engine.handleExecution(bhir);
+        // TODO: Remove default argument 'false' when header is fixed
+        engine.handleExecution(bhir, false);
 
         // Check condition
         if (cond != nullptr and cond->data != nullptr and not ((bool*) cond->data)[0]) {

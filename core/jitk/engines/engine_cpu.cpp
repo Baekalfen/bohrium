@@ -36,7 +36,7 @@ using namespace std;
 namespace bohrium {
 namespace jitk {
 
-void EngineCPU::handleExecution(BhIR *bhir) {
+void EngineCPU::handleExecution(BhIR *bhir, bool opencl_scalar_reduction=false) {
 
     const auto texecution = chrono::steady_clock::now();
 

@@ -154,7 +154,7 @@ void Impl::execute(BhIR *bhir) {
         engine.handleExtmethod(bhir);
 
         // And then the regular instructions
-        engine.handleExecution(bhir);
+        engine.handleExecution(bhir, true);
 
         // Check condition
         if (cond != nullptr) {

@@ -610,7 +610,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     /* } */
     /* cout << "Best parallel: " << lowest_stride << " rank: " << axis_lowest_stride << endl; */
 
-
     // Write the need includes
     ss << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
     ss << "#include <kernel_dependencies/complex_opencl.h>\n";
@@ -695,10 +694,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     if (is_sweep){
         util::spaces(ss, 4);
         ss << "__DATA_TYPE__ element;\n";
-        if (bh_opcode_is_reduction(std::get<0>(sweep_info))){
-            util::spaces(ss, 4);
-            ss << "__global __DATA_TYPE__* destination;\n";
-        }
     }
 
     // Write the IDs of the threaded blocks

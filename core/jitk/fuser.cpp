@@ -372,6 +372,12 @@ void fuser_reshapable_first(vector<Block> &block_list, bool avoid_rank0_sweep) {
 
 void fuser_greedy(const ConfigParser &config, vector<Block> &block_list, bool avoid_rank0_sweep) {
 
+    /* cout << "IN:\n" <<endl; */
+    /* for (Block &block: block_list) { */
+    /*     cout << block << endl; */
+    /* } */
+
+
     graph::DAG dag = graph::from_block_list(block_list);
 
     size_t greedy_threshold = config.defaultGet<size_t>("greedy_threshold", 10000);
@@ -390,6 +396,11 @@ void fuser_greedy(const ConfigParser &config, vector<Block> &block_list, bool av
         }
     }
     block_list = ret;
+
+/*     cout << "out:\n" <<endl; */
+/*     for (Block &block: block_list) { */
+/*         cout << block << endl; */
+/*     } */
 }
 
 } // jitk

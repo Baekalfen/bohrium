@@ -137,6 +137,10 @@ void add_identity_block(LoopB &loop, int64_t &origin_count) {
 // This version creates kernels for each identity+sweep block set
 vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_count) {
     vector<LoopB> ret;
+
+    /* cout << "Block in:\n" << block_list << endl; */
+
+
     for (Block &block: block_list) {
         assert(not block.isInstr());
         add_identity_block(block.getLoop(), origin_count);
@@ -146,13 +150,27 @@ vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_coun
         const auto ordered_sweeps = order_sweep_by_origin_id(block.getLoop().getSweeps());
         for (const InstrPtr &sweep_instr: ordered_sweeps) {
             // We don't want the identity for a rank0 scalar reduction
+
+            /* cout << "rank: " << block.rank() << endl << */
+            /*     "sweep_axis: " << sweep_instr->sweep_axis() << endl << */
+            /*     "bh_opcode_is_reduction: " << bh_opcode_is_reduction(sweep_instr->opcode) << endl << */
+            /*     "ndim: " << sweep_instr->ndim() << endl << */
+            /*     "shape: " << sweep_instr->operand[0].ndim << endl << */
+            /*     "shape: " << sweep_instr->operand[0].shape[0] << endl << */
+            /*     "shape: " << sweep_instr->operand[1].ndim << endl << */
+            /*     "shape: " << sweep_instr->operand[1].shape[0] << endl; */
+
+
+            // Special vector-to-scalar reduction doesn't want this at the moment.
+            // It probably should in the future instead of having the 'element' var.
             if (block.rank() == 0 &&
-                sweep_instr->sweep_axis() == 0 &&
-                bh_opcode_is_reduction(sweep_instr->opcode) &&
-                sweep_instr->ndim() == 1 &&
-                sweep_instr->operand[0].shape[0] == 1
+                sweep_instr->sweep_axis() == 0 && // Only defined for axis 0 -- vector to scalar.
+                bh_opcode_is_reduction(sweep_instr->opcode) && // Only for reductions. Obviously.
+                sweep_instr->operand[0].ndim == 1 && //Check the destination is one dimension. Part one of verifying this is a scalar.
+                sweep_instr->operand[0].shape[0] == 1 && // Part two: Check the destination is a scalar.
+                sweep_instr->operand[1].ndim == 1 // Check the input is a vector and not a matrix.
                 ) {
-                /* cout << "SKIPPING!" << endl; */
+                cout << "SKIPPING!" << endl;
                 continue;
             }
 
@@ -168,9 +186,24 @@ vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_coun
                 identity_instr.operand[0].shape[sweep_instr->sweep_axis()] = 1;
             }
 
+            vector<InstrPtr> single_instr = {std::make_shared<const bh_instruction>(identity_instr)};
+
+
+            // Add identity to rank0 reduction
+            if (block.rank() == 0 &&
+                sweep_instr->sweep_axis() == 0 &&
+                bh_opcode_is_reduction(sweep_instr->opcode) &&
+                sweep_instr->ndim() == 2
+                ) {
+                cout << "PATCHING!" << endl;
+                block.getLoop()._block_list.insert(block.getLoop()._block_list.begin(), Block(identity_instr, 1));
+            } else
+
             if (sweep_instr->operand[0].is_scalar()) {
+                /* cout << "ISSCALAR" << endl; */
                 kernel._block_list.emplace_back(identity_instr, 0);
             } else {
+                /* cout << "NOTSCALAR" << endl; */
                 // Let's create and add the identity loop to `ret`
                 vector<InstrPtr> single_instr = {std::make_shared<const bh_instruction>(identity_instr)};
                 kernel._block_list.emplace_back(create_nested_block(single_instr, 0));
@@ -186,6 +219,10 @@ vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_coun
         ret.emplace_back(std::move(kernel));
     }
 
+    /* cout << "Block out:\n" <<endl; */
+    /* for (LoopB &block: ret) { */
+    /*     cout << block << endl; */
+    /* } */
     return ret;
 }
 
@@ -250,6 +287,8 @@ vector<LoopB> get_kernel_list(const vector<bh_instruction*> &instr_list, const C
     for (bh_instruction *instr: instr_list) {
         instr->origin_id = origin_count++;
     }
+
+    /* cout << "get_kernel_list " << monolithic << " " << avoid_rank0_sweep << endl; */
 
     vector<Block> block_list = get_block_list(instr_list, config, fcache, stat, avoid_rank0_sweep);
 

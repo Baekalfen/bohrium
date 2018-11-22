@@ -297,16 +297,12 @@ bool LoopB::validation() const {
 }
 
 uint64_t LoopB::localThreading() const {
-    if (rank == 0 and _sweeps.size() == 1 and (not isSystemOnly())){
-       // We got an outer sweep!
-       return static_cast<uint64_t>(size);
-   } else {
-       if (_sweeps.size() == 0 and not isSystemOnly()) {
-           assert (size >= 0);
-           return static_cast<uint64_t>(size);
-       }
-   }
-   return 0;
+    // We can parallelize, if there is no sweep, or one sweep in the outer-most axis
+    if (not isSystemOnly() and (_sweeps.size() == 0 || rank == 0 and _sweeps.size() == 1)) {
+        assert (size >= 0);
+        return static_cast<uint64_t>(size);
+    }
+    return 0;
 }
 
 string LoopB::pprint(const char *newline) const {

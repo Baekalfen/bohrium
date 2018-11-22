@@ -76,7 +76,8 @@ public:
                         jitk::Scope &scope,
                         const jitk::LoopB &block,
                         const std::vector<uint64_t> &thread_stack,
-                        std::stringstream &out) override;
+                        std::stringstream &out,
+                        const size_t parallelize_rank = -1) override;
 
     // Return a YAML string describing this component
     std::string info() const override;

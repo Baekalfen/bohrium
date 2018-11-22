@@ -217,7 +217,8 @@ public:
                         jitk::Scope &scope,
                         const jitk::LoopB &block,
                         const std::vector<uint64_t> &thread_stack,
-                        std::stringstream &out) override {
+                        std::stringstream &out,
+                        const size_t parallelize_rank = -1) override {
         // Write the for-loop header
         std::string itername;
         { std::stringstream t; t << "i" << block.rank; itername = t.str(); }

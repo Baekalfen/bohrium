@@ -122,9 +122,10 @@ public:
             }
         }
 
-        // Let's get the kernel list
         // NB: 'avoid_rank0_sweep' is set to true since GPUs cannot reduce over the outermost block
         const bool avoid_rank0_sweep = !opencl_scalar_reduction;
+
+        // Let's get the kernel list -- this converts the instruction list into a fused kernel structure ready for codegen
         for (const jitk::LoopB &kernel: get_kernel_list(instr_list, comp.config, fcache, stat, avoid_rank0_sweep, false)) {
             // Let's create the symbol table for the kernel
             const jitk::SymbolTable symbols(
@@ -144,7 +145,7 @@ public:
             // Find the parallel blocks
             std::vector<uint64_t> thread_stack;
             if (kernel._block_list.size() == 1 and kernel_is_computing) {
-                uint64_t nranks = parallel_ranks(kernel._block_list[0].getLoop()).first;
+                uint64_t nranks = parallel_ranks(kernel._block_list[0].getLoop(), -1).first;
                 if (num_threads > 0 and nranks > 0) {
                     uint64_t nthds = static_cast<uint64_t>(kernel.size);
                     if (nthds > num_threads) {
@@ -273,7 +274,7 @@ private:
 
 
 
-        // Determine if this is a vector-reduction kernel. Only handle a single sweep, which is a reduction
+        // Determine if there is a vector-reduction kernel. Only handle a single sweep, which is a reduction
         std::tuple<bh_opcode, bh_view, bh_view> sweep_info = std::make_tuple(BH_NONE, bh_view(), bh_view());
         auto rank0 = kernel.getLocalSubBlocks().front();
         auto sweeps = rank0->getSweeps();

@@ -75,7 +75,8 @@ void Engine::writeBlock(const SymbolTable &symbols,
                         const std::vector<uint64_t> &thread_stack,
                         bool opencl,
                         std::stringstream &out,
-                        bool is_sweep) {
+                        bool is_sweep,
+                        const size_t parallelize_rank) {
 
     if (kernel.isSystemOnly()) {
         out << "// Removed loop with only system instructions\n";
@@ -196,8 +197,8 @@ void Engine::writeBlock(const SymbolTable &symbols,
                 }
             } else {
                 util::spaces(out, 4 + b.rank() * 4);
-                loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out);
-                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_sweep);
+                loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out, parallelize_rank);
+                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_sweep, parallelize_rank);
                 util::spaces(out, 4 + b.rank() * 4);
                 out << "}\n";
             }
@@ -222,7 +223,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
             } else {
                 util::spaces(out, 4 + b.rank() * 4);
                 loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out);
-                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_sweep);
+                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_sweep, parallelize_rank);
                 util::spaces(out, 4 + b.rank() * 4);
                 out << "}\n";
             }

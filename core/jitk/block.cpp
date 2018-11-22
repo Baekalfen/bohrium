@@ -297,41 +297,10 @@ bool LoopB::validation() const {
 }
 
 uint64_t LoopB::localThreading() const {
-    cout << "localThreading" << endl;
-    if (rank == 0 and _sweeps.size() == 1 and (not isSystemOnly())){
-
-        for(std::shared_ptr<const bh_instruction> sweep: _sweeps) {
-            /* auto views = sweep->getViews(); */
-
-            /* // TODO: Fix this abomination */
-            /* bh_view r; */
-            /* bh_view l; */
-            /* int i = 0; */
-            /* for (const bh_view &view: views) { */
-            /*     if (i==0){ */
-            /*         r = view; */
-            /*     } */
-            /*     else{ */
-            /*         l = view; */
-            /*     } */
-            /*     i++; */
-            /* } */
-
-            /* if (bh_opcode_is_accumulate(sweep->opcode) || */
-            /*         (bh_opcode_is_reduction(sweep->opcode) && */
-            /*          r.ndim == 1 && r.shape[0] == 1 && */
-            /*          l.ndim == 1 && l.shape[0] > 1)) { */
-            /*     // We got a scalar sweep! */
-                return static_cast<uint64_t>(size);
-            /* } */
-        }
-
-        /* return static_cast<uint64_t>(size); */
-    } else {
-        if (_sweeps.size() == 0 and not isSystemOnly()) {
-            assert (size >= 0);
-            return static_cast<uint64_t>(size);
-        }
+    // We can parallelize, if there is no sweep, or one sweep in the outer-most axis
+    if (not isSystemOnly() and (_sweeps.size() == 0 || rank == 0 and _sweeps.size() == 1)) {
+        assert (size >= 0);
+        return static_cast<uint64_t>(size);
     }
     return 0;
 }

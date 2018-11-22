@@ -229,7 +229,8 @@ void EngineOpenMP::loopHeadWriter(const jitk::SymbolTable &symbols,
                                   jitk::Scope &scope,
                                   const jitk::LoopB &block,
                                   const vector<uint64_t> &thread_stack,
-                                  stringstream &out) {
+                                  stringstream &out,
+                                  const size_t parallelize_rank) {
     // Let's write the OpenMP loop header
     int64_t for_loop_size = block.size;
     // No need to parallel one-sized loops
@@ -340,7 +341,7 @@ void EngineOpenMP::writeKernel(const LoopB &kernel,
     }
     ss << "\n";
 
-    writeBlock(symbols, nullptr, kernel, {}, false, ss, false);
+    writeBlock(symbols, nullptr, kernel, {}, false, ss, false, -1);
 
     // Write frees of the kernel temporaries
     ss << "\n";

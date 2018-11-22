@@ -159,7 +159,8 @@ protected:
                             const std::vector<uint64_t> &thread_stack,
                             bool opencl,
                             std::stringstream &out,
-                            bool is_sweep);
+                            bool is_sweep,
+                            const size_t parallelize_rank = -1);
 
     /** Write a loop header
      *
@@ -173,7 +174,8 @@ protected:
                                 Scope &scope,
                                 const LoopB &block,
                                 const std::vector<uint64_t> &thread_stack,
-                                std::stringstream &out) = 0;
+                                std::stringstream &out,
+                                const size_t parallelize_rank = -1) = 0;
 };
 
 }

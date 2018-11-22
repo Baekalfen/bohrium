@@ -408,8 +408,20 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     /* } */
     /* return buf; */
 
+
+
+    // TODO: Test for setting!
+    // Force 1D kernel on the deepest available rank
+    vector<uint64_t> thread_stack2;
+    size_t lowest_stride = thread_stack[thread_stack.size()-1];
+    thread_stack2.push_back(lowest_stride);
+    /* thread_stack2 = thread_stack; */
+
+
+
+
     /* cl::Buffer *buf = createBuffer(base); */
-    const auto ranges = NDRanges(thread_stack);
+    const auto ranges = NDRanges(thread_stack2);
     size_t local_size = ranges.second.local_size();
     /* size_t work_groups = ranges.first.dim(0) / ranges.second.dim(0); // TODO: Multi-dim kernels! */
     size_t work_groups = ranges.first.work_groups(ranges.second);
@@ -446,7 +458,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
 
         if (bh_opcode_is_accumulate(std::get<0>(sweep_info))){
             sweep_local_size = local_size;
-            post_ranges = NDRanges(thread_stack);
+            post_ranges = NDRanges(thread_stack2);
             post_sweep = cl::Kernel(program, "scan_2pass_postprocess");
 
             post_sweep.setArg(i++, *getBuffer(std::get<2>(sweep_info).base)); // Output array
@@ -565,6 +577,40 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                stringstream &ss,
                                const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) {
 
+    // Not actually lowest, but the one we assume is lowest in most cases
+    size_t axis_lowest_stride = thread_stack.size()-1;
+    size_t lowest_stride = thread_stack[axis_lowest_stride];
+    /* size_t lowest_stride = -1; // Disable */
+    /* size_t axis_lowest_stride = 0; // Disable */
+    /* thread_stack.clear(); */
+    /* thread_stack.push_back(lowest_stride); */
+
+    /* size_t lowest_stride = -1; */
+    /* size_t axis_lowest_stride = 0; */
+    /* cout << "Finding best axis" << endl; */
+    /* jitk::LoopB loop = kernel._block_list[0].getLoop(); */
+    /* for (jitk::Block &b: loop._block_list) { */
+    /*     /1* cout << "Block:" << endl << b << endl; *1/ */
+
+    /*     // TODO: Probably not exhaustive enough */
+    /*     while (!b.isInstr()) { */
+    /*         b = b.getLoop()._block_list[0]; */
+    /*     } */
+    /*     // TODO: If (scalar?) sweep exists, ignore */
+
+    /*     for (const bh_view &view: b.getInstr()->getViews()) { */
+    /*         for (size_t i=0; i < view.ndim; i++){ */
+    /*             size_t stride = view.stride[i]; */
+    /*             if (lowest_stride >= stride && axis_lowest_stride <= i){ */
+    /*                 lowest_stride = stride; */
+    /*                 axis_lowest_stride = i; */
+    /*             } */
+    /*         } */
+    /*     } */
+    /* } */
+    /* cout << "Best parallel: " << lowest_stride << " rank: " << axis_lowest_stride << endl; */
+
+
     // Write the need includes
     ss << "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n";
     ss << "#include <kernel_dependencies/complex_opencl.h>\n";
@@ -622,12 +668,16 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
 
         ss << "#define __DATA_TYPE__ " << writeType(std::get<1>(sweep_info).base->type) <<"\n";
 
-
-        const auto local_range = NDRanges(thread_stack).second;
-
-        ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
-        for (size_t i = 0; i < local_range.dimensions(); i++){
-            ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n";
+        if (axis_lowest_stride == 0){
+            const auto local_range = NDRanges(thread_stack).second;
+            ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
+            for (size_t i = 0; i < local_range.dimensions(); i++){
+                ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n";
+            }
+        } else {
+            ss << "// Forced 1D kernel\n";
+            ss << "#define KERNEL_1D\n";
+            ss << "#define DIM1 " << lowest_stride << "\n";
         }
 
         ss << "#include <kernel_dependencies/reduce_opencl.h>\n";
@@ -651,28 +701,47 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     if (not thread_stack.empty()) {
         util::spaces(ss, 4);
         ss << "// The IDs of the threaded blocks:\n";
-        for (unsigned int i=0; i < thread_stack.size(); ++i) {
+        if (axis_lowest_stride == 0){
+            for (unsigned int i=0; i < thread_stack.size(); ++i) {
+                util::spaces(ss, 4);
+                // Special case for vector-to-scalar reductions and rank0 sweeps
+                if (is_sweep && i == 0){
+                    // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
+                    ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
+                        << "if (g" << i << " < " << thread_stack[i] << ") { // Prevent overflow in calculations, but keep thread for reduction\n";
+                }
+                else{
+                    ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
+                        << "if (g" << i << " >= " << thread_stack[i] << ") { return; } // Prevent overflow\n";
+                }
+            }
+        } else {
             util::spaces(ss, 4);
-            if (is_sweep && i == 0){
+            ss << "// Forced 1D kernel.\n";
+            util::spaces(ss, 4);
+            /* size_t i = axis_lowest_stride; */
+            if (is_sweep){
                 // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
-                ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
-                   << "if (g" << i << " < " << thread_stack[i] << ") { // Prevent overflow in calculations, but keep thread for reduction\n";
+                ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride << " = get_global_id(0); "
+                    << "if (g" << axis_lowest_stride << " < " << lowest_stride << ") { // Prevent overflow in calculations, but keep thread for reduction\n";
             }
             else{
-                ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
-                   << "if (g" << i << " >= " << thread_stack[i] << ") { return; } // Prevent overflow\n";
+                ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride << " = get_global_id(0); "
+                    << "if (g" << axis_lowest_stride << " >= " << lowest_stride << ") { return; } // Prevent overflow\n";
             }
         }
         ss << "\n";
     }
 
     // Write inner blocks
-    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, is_sweep);
+    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, is_sweep, axis_lowest_stride);
 
-    if (is_sweep){
+    if (not thread_stack.empty() && is_sweep){
         // Inject neutral element, when there is no data in global memory to read
-        ss << "    }else{\n        element = NEUTRAL;\n"
-           << "    }\n\n    reduce_2pass_preprocess(element, a, res);\n";
+        ss << "    }else{\n        element = NEUTRAL;\n";
+
+        // Call special rank0 preprocessing for both reduce and scan
+        ss << "    }\n\n    reduce_2pass_preprocess(element, a, res);\n";
     }
     ss << "}\n\n";
 }
@@ -682,10 +751,32 @@ void EngineOpenCL::loopHeadWriter(const jitk::SymbolTable &symbols,
                                   jitk::Scope &scope,
                                   const jitk::LoopB &block,
                                   const std::vector<uint64_t> &thread_stack,
-                                  std::stringstream &out) {
+                                  std::stringstream &out,
+                                  const size_t parallelize_rank) {
+
     // Write the for-loop header
     std::string itername; { std::stringstream t; t << "i" << block.rank; itername = t.str(); }
+
+    /* cout << "thread_stack: "; */
+    /* for (unsigned int i=0; i < thread_stack.size(); ++i) { */
+    /*     cout << thread_stack[i] << " "; */
+    /* } */
+    /* cout << static_cast<size_t >(block.rank) << endl; */
+
+    if (parallelize_rank != -1){
+        if (parallelize_rank == static_cast<size_t >(block.rank)){
+            out << "{const " << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << ";";
+        }
+        else {
+            out << "for (" << writeType(bh_type::UINT64) << " " << itername << " = 0; ";
+            out << itername << " < " << block.size << "; ++" << itername << ") {";
+        }
+        out << "\n";
+        return;
+    }
+
     if (thread_stack.size() > static_cast<size_t >(block.rank)) {
+        // If we are limiting threads. num_threads == 0 is infinite threads allowed.
         if (num_threads > 0 and thread_stack[block.rank] > 0) {
             if (num_threads_round_robin) {
                 out << "for (" << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << "; "
@@ -700,10 +791,14 @@ void EngineOpenCL::loopHeadWriter(const jitk::SymbolTable &symbols,
                     << itername << " < "  << job_start <<  " + " << job_size << " && " << itername << " < " << block.size
                     << "; ++" << itername << ") {";
             }
-        } else {
+        }
+        // Classic kernel parallelism for each rank.
+        else {
             out << "{const " << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << ";";
         }
-    } else {
+    }
+    // Substitute rest of the ranks with for-loops.
+    else {
         out << "for (" << writeType(bh_type::UINT64) << " " << itername << " = 0; ";
         out << itername << " < " << block.size << "; ++" << itername << ") {";
     }

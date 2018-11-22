@@ -728,6 +728,7 @@ void write_other_instr(const Scope &scope, const bh_instruction &instr, stringst
         } else {
             scope.getName(view, ss);
             if (scope.isArray(view)) {
+                // Commented this out, it makes the writeback access the wrong index in the output array.
                 /* if (o == 0 and bh_opcode_is_reduction(instr.opcode) and instr.operand[1].ndim > 1) { */
                 /*     // If 'instr' is a reduction we have to ignore the reduced axis of the output array when */
                 /*     // reducing to a non-scalar */

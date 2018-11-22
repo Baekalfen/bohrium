@@ -425,20 +425,15 @@ class Ufunc(object):
 
             return out
         else:
-            # Let's sort the axis indexes by their stride
-            # We use column major when a GPU is in the stack
-            column_major = bh_info.is_opencl_in_stack() or bh_info.is_cuda_in_stack()
-            strides = []
-            for i, s in enumerate(ary.strides):
-                if i in axis:
-                    strides.append((i, abs(s)))
-            axis = [i[0] for i in sorted(strides, key=lambda x: x[1], reverse=column_major)]
-
-            # Let's reduce the first axis
-            ary = self.reduce(ary, axis[0])
-            # Then we reduce the rest of the axes and remember to correct the axis values
-            axis = [i if i < axis[0] else i-1 for i in axis[1:]]
-            ary = self.reduce(ary, axis)
+            # If we are reducing to a scalar across several dimensions, reshape to a vector
+            if ary.ndim == len(axis) and ary.flags['C_CONTIGUOUS']:
+                ary = ary.flatten(always_copy=False)
+                ary = self.reduce(ary)
+            else:
+                # Let's reduce the last axis
+                # TODO: Flatten as many inner dimensions as possible!
+                ary = self.reduce(ary, axis[-1])
+                ary = self.reduce(ary, axis[:-1])
             # Finally, we may have to copy the result to 'out'
             if out is not None:
                 out[...] = ary

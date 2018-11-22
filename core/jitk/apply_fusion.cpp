@@ -86,7 +86,7 @@ std::vector<InstrPtr> order_sweep_by_origin_id(const std::set<InstrPtr> &sweep_s
 
 // Help function that adds identity blocks before sweeping blocks.
 // This version update a block rather then return a kernel list (see the function belove)
-void add_identity_block(LoopB &loop, int64_t &origin_count) {
+void add_identity_block(LoopB &loop, int64_t &origin_count, bool opencl) {
     vector<Block> ret;
     for (Block &block: loop._block_list) {
 
@@ -95,7 +95,7 @@ void add_identity_block(LoopB &loop, int64_t &origin_count) {
             continue;
         }
 
-        add_identity_block(block.getLoop(), origin_count);
+        add_identity_block(block.getLoop(), origin_count, opencl);
 
         const auto ordered_sweeps = order_sweep_by_origin_id(block.getLoop().getSweeps());
         for (const InstrPtr &sweep_instr: ordered_sweeps) {
@@ -135,7 +135,7 @@ void add_identity_block(LoopB &loop, int64_t &origin_count) {
 
 // Help function that adds identity blocks before sweeping blocks.
 // This version creates kernels for each identity+sweep block set
-vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_count) {
+vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_count, bool opencl) {
     vector<LoopB> ret;
 
     /* cout << "Block in:\n" << block_list << endl; */
@@ -143,7 +143,7 @@ vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_coun
 
     for (Block &block: block_list) {
         assert(not block.isInstr());
-        add_identity_block(block.getLoop(), origin_count);
+        add_identity_block(block.getLoop(), origin_count, opencl);
 
         LoopB kernel{-1, 1};
 
@@ -163,7 +163,8 @@ vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_coun
 
             // Special vector-to-scalar reduction doesn't want this at the moment.
             // It probably should in the future instead of having the 'element' var.
-            if (block.rank() == 0 &&
+            if (opencl &&
+                block.rank() == 0 &&
                 sweep_instr->sweep_axis() == 0 && // Only defined for axis 0 -- vector to scalar.
                 bh_opcode_is_reduction(sweep_instr->opcode) && // Only for reductions. Obviously.
                 sweep_instr->operand[0].ndim == 1 && //Check the destination is one dimension. Part one of verifying this is a scalar.
@@ -190,7 +191,8 @@ vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_coun
 
 
             // Add identity to rank0 reduction
-            if (block.rank() == 0 &&
+            if (opencl &&
+                block.rank() == 0 &&
                 sweep_instr->sweep_axis() == 0 &&
                 bh_opcode_is_reduction(sweep_instr->opcode) &&
                 sweep_instr->ndim() == 2
@@ -275,13 +277,16 @@ vector<Block> get_block_list(const vector<bh_instruction*> &instr_list, const Co
             assert(b.validation());
         }
     #endif
+
+    cout << "After all fusers:\n" << block_list << endl;
+
     return block_list;
 }
 }
 
 
 vector<LoopB> get_kernel_list(const vector<bh_instruction*> &instr_list, const ConfigParser &config,
-                              FuseCache &fcache, Statistics &stat, bool avoid_rank0_sweep, bool monolithic) {
+                              FuseCache &fcache, Statistics &stat, bool avoid_rank0_sweep, bool monolithic, bool opencl) {
     // Assign origin ids to all instructions starting at zero.
     int64_t origin_count = 0;
     for (bh_instruction *instr: instr_list) {
@@ -299,16 +304,16 @@ vector<LoopB> get_kernel_list(const vector<bh_instruction*> &instr_list, const C
                 ret.emplace_back(LoopB{-1, 1, {std::move(b)}});
             } else {
                 LoopB kernel{-1, 1, {std::move(b)}};
-                add_identity_block(kernel, origin_count);
+                add_identity_block(kernel, origin_count, opencl);
                 ret.emplace_back(std::move(kernel));
             }
         }
     } else if (monolithic) {
         LoopB kernel{-1, 1, {std::move(block_list)}};
-        add_identity_block(kernel, origin_count);
+        add_identity_block(kernel, origin_count, opencl);
         ret = {std::move(kernel)};
     } else {
-        ret = add_identity_block(block_list, origin_count);
+        ret = add_identity_block(block_list, origin_count, opencl);
     }
 
     return ret;

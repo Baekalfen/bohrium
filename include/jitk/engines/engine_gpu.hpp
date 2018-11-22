@@ -126,7 +126,7 @@ public:
         const bool avoid_rank0_sweep = !opencl_scalar_reduction;
 
         // Let's get the kernel list -- this converts the instruction list into a fused kernel structure ready for codegen
-        for (const jitk::LoopB &kernel: get_kernel_list(instr_list, comp.config, fcache, stat, avoid_rank0_sweep, false)) {
+        for (const jitk::LoopB &kernel: get_kernel_list(instr_list, comp.config, fcache, stat, avoid_rank0_sweep, false, opencl_scalar_reduction)) {
             // Let's create the symbol table for the kernel
             const jitk::SymbolTable symbols(
                     kernel,

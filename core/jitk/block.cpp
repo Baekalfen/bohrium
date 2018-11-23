@@ -298,7 +298,7 @@ bool LoopB::validation() const {
 
 uint64_t LoopB::localThreading() const {
     // We can parallelize, if there is no sweep, or one sweep in the outer-most axis
-    if (not isSystemOnly() and (_sweeps.size() == 0 || rank == 0 and _sweeps.size() == 1)) {
+    if (not isSystemOnly() and (_sweeps.size() == 0 || (rank == 0 and _sweeps.size() == 1))) {
         assert (size >= 0);
         return static_cast<uint64_t>(size);
     }

@@ -148,9 +148,11 @@ public:
 
             // Find the parallel blocks
             std::vector<uint64_t> thread_stack;
+            /* cout << "thread_stack" << endl; */
             if (kernel._block_list.size() == 1 and kernel_is_computing) {
                 uint64_t nranks = parallel_ranks(kernel._block_list[0].getLoop(), -1).first;
                 if (num_threads > 0 and nranks > 0) {
+                    /* cout << kernel.stride << ", "; */
                     uint64_t nthds = static_cast<uint64_t>(kernel.size);
                     if (nthds > num_threads) {
                         nthds = num_threads;

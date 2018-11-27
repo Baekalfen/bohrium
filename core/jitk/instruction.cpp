@@ -735,7 +735,7 @@ void write_other_instr(const Scope &scope, const bh_instruction &instr, stringst
                 /*     write_array_subscription(scope, view, ss, true, instr.sweep_axis()); */
                 /* } else { */
                     write_array_subscription(scope, view, ss);
-                }
+                /* } */
             }
         }
         ops.push_back(ss.str());

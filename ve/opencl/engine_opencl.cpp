@@ -606,6 +606,8 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
 
     // Not actually lowest, but the one we assume is lowest in most cases
     size_t axis_lowest_stride = thread_stack.size()-1;
+    cout << "thread_stack size: " << thread_stack.size() << " " << axis_lowest_stride << endl;
+
     /* size_t lowest_stride = thread_stack[axis_lowest_stride]; */
     /* size_t lowest_stride = -1; // Disable */
     /* size_t axis_lowest_stride = 0; // Disable */
@@ -747,19 +749,18 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         } else {
             util::spaces(ss, 4);
             ss << "// Forced 1D kernel.\n";
-            util::spaces(ss, 4);
             /* size_t i = axis_lowest_stride; */
             if (is_sweep){
+                util::spaces(ss, 4);
                 // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
                 ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride << " = get_global_id(0); "
                     << "if (g" << axis_lowest_stride << " < " << thread_stack[axis_lowest_stride] << ") { // Prevent overflow in calculations, but keep thread for reduction\n";
             }
             else{
                 // Fill kernel param with dims of 1 element to exploit some parallelism better
-                ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride << " = get_global_id(0); "
-                    << "if (g" << axis_lowest_stride << " >= " << thread_stack[axis_lowest_stride] << ") { return; } // Prevent overflow\n";
 
-                for (int i=1; i<std::min(thread_stack.size(), (size_t) 3); i++){
+                for (int i=0; i<std::min(thread_stack.size(), (size_t) 3); i++){
+                    cout << "Insert base: " << i << endl;
                     util::spaces(ss, 4);
                     ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride-i << " = get_global_id(" << i << "); "
                         << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { return; } // Prevent overflow\n";

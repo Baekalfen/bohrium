@@ -144,7 +144,7 @@ public:
             // We can skip a lot of steps if the kernel does no computation
             const bool kernel_is_computing = not kernel.isSystemOnly();
 
-            cout << "SDOJFSDFOJSD\n" << kernel << endl;
+            cout << "\n\nHandle Execution: \n" << kernel << endl;
 
             // Find the parallel blocks
             std::vector<uint64_t> thread_stack;
@@ -302,7 +302,12 @@ private:
                     i++;
                 }
 
-                sweep_info = std::make_tuple(sweep->opcode, l, r);
+                if (bh_opcode_is_accumulate(sweep->opcode) ||
+                     (bh_opcode_is_reduction(sweep->opcode) &&
+                      r.ndim == 1 && r.shape[0] == 1 &&
+                      l.ndim == 1 && l.shape[0] > 1)) {
+                    sweep_info = std::make_tuple(sweep->opcode, l, r);
+                }
             }
         }
 

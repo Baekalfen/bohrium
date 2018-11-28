@@ -146,15 +146,15 @@ vector<LoopB> add_identity_block(vector<Block> &block_list, int64_t &origin_coun
         const auto ordered_sweeps = order_sweep_by_origin_id(block.getLoop().getSweeps());
         for (const InstrPtr &sweep_instr: ordered_sweeps) {
             // We don't want the identity for a rank0 scalar reduction
-            if (block.rank() == 0 &&
-                sweep_instr->sweep_axis() == 0 &&
-                bh_opcode_is_reduction(sweep_instr->opcode) &&
-                sweep_instr->ndim() == 1 &&
-                sweep_instr->operand[0].shape[0] == 1
-                ) {
-                /* cout << "SKIPPING!" << endl; */
-                continue;
-            }
+            /* if (block.rank() == 0 && */
+            /*     sweep_instr->sweep_axis() == 0 && */
+            /*     bh_opcode_is_reduction(sweep_instr->opcode) && */
+            /*     sweep_instr->ndim() == 1 && */
+            /*     sweep_instr->operand[0].shape[0] == 1 */
+            /*     ) { */
+            /*     /1* cout << "SKIPPING!" << endl; *1/ */
+            /*     continue; */
+            /* } */
 
             bh_instruction identity_instr(BH_IDENTITY, {sweep_instr->operand[0]});
             identity_instr.operand.resize(2);

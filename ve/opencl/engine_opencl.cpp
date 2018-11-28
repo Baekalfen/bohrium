@@ -238,6 +238,13 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
     int64_t opt_access_pattern = comp.config.defaultGet<int64_t>("optimize_access_pattern", 0);
     const auto &b = thread_stack;
 
+/*     cout << thread_stack.size() << " " << opt_access_pattern << endl; */
+/*     for (int i=0; i<thread_stack.size(); i++){ */
+/*         cout << thread_stack[i] <<  ", "; */
+/*     } */
+/*     cout << endl; */
+
+
     if (opt_access_pattern == 0){
         switch (b.size()) {
             case 1: {
@@ -445,11 +452,12 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     if (opt_access_pattern !=0){
         size_t dims = thread_stack.size();
         size_t lowest_stride = thread_stack[dims-1];
-        thread_stack2.push_back(lowest_stride);
+        /* thread_stack2.push_back(lowest_stride); */
 
         // Fill kernel param with dims of 1 element to exploit some parallelism better
-        for (int i=1; i<std::min(dims, (size_t) opt_access_pattern); i++){
-            thread_stack2.push_back(1);
+        for (int i=0; i<std::min(dims, (size_t) opt_access_pattern); i++){
+            thread_stack2.push_back(thread_stack[dims-i-1]);
+            /* thread_stack2.push_back(1); */
         }
 
         assert (thread_stack2.size() == std::min(dims, (size_t) opt_access_pattern));
@@ -715,18 +723,17 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
 
         ss << "#define __DATA_TYPE__ " << writeType(std::get<1>(sweep_info).base->type) <<"\n";
 
+        const auto local_range = NDRanges(thread_stack).second;
         if (opt_access_pattern == 0){
-            const auto local_range = NDRanges(thread_stack).second;
             ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
-            for (size_t i = 0; i < local_range.dimensions(); i++){
-                ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n";
-            }
-        } else {
+        }
+        else{
             ss << "// Optimizing Access Pattern!\n";
             ss << "#define KERNEL_1D\n";
-            ss << "#define DIM1 " << thread_stack[axis_lowest_stride] << "\n";
-            ss << "#define DIM2 1\n";
-            ss << "#define DIM3 1\n";
+        }
+
+        for (size_t i = 0; i < local_range.dimensions(); i++){
+            ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n";
         }
 
         ss << "#include <kernel_dependencies/reduce_opencl.h>\n";

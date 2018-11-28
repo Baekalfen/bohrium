@@ -235,50 +235,55 @@ pair<uint32_t, uint32_t> work_ranges(uint64_t work_group_size, int64_t block_siz
 }
 
 pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &thread_stack) const {
+    int64_t opt_access_pattern = comp.config.defaultGet<int64_t>("optimize_access_pattern", 0);
     const auto &b = thread_stack;
-    switch (b.size()) {
-        case 1: {
-            const auto gsize_and_lsize = work_ranges(128, b[0]);
-            return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
-        }
-        case 2: {
-            const auto gsize_and_lsize_x = work_ranges(128, b[0]);
-            const auto gsize_and_lsize_y = work_ranges(1, b[1]);
-            return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first),
-                             cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second));
-        }
-        case 3: {
-            const auto gsize_and_lsize_x = work_ranges(128, b[0]);
-            const auto gsize_and_lsize_y = work_ranges(1, b[1]);
-            const auto gsize_and_lsize_z = work_ranges(1, b[2]);
-            return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first),
-                             cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
-        }
-        default:
-            throw runtime_error("NDRanges: maximum of three dimensions!");
-    }
 
-    /* switch (b.size()) { */
-    /*     case 1: { */
-    /*         const auto gsize_and_lsize = work_ranges(work_group_size_1dx, b[0]); */
-    /*         return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second)); */
-    /*     } */
-    /*     case 2: { */
-    /*         const auto gsize_and_lsize_x = work_ranges(work_group_size_2dx, b[0]); */
-    /*         const auto gsize_and_lsize_y = work_ranges(work_group_size_2dy, b[1]); */
-    /*         return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first), */
-    /*                          cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second)); */
-    /*     } */
-    /*     case 3: { */
-    /*         const auto gsize_and_lsize_x = work_ranges(work_group_size_3dx, b[0]); */
-    /*         const auto gsize_and_lsize_y = work_ranges(work_group_size_3dy, b[1]); */
-    /*         const auto gsize_and_lsize_z = work_ranges(work_group_size_3dz, b[2]); */
-    /*         return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first), */
-    /*                          cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second)); */
-    /*     } */
-    /*     default: */
-    /*         throw runtime_error("NDRanges: maximum of three dimensions!"); */
-    /* } */
+    if (opt_access_pattern == 0){
+        switch (b.size()) {
+            case 1: {
+                const auto gsize_and_lsize = work_ranges(work_group_size_1dx, b[0]);
+                return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
+            }
+            case 2: {
+                const auto gsize_and_lsize_x = work_ranges(work_group_size_2dx, b[0]);
+                const auto gsize_and_lsize_y = work_ranges(work_group_size_2dy, b[1]);
+                return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first),
+                                 cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second));
+            }
+            case 3: {
+                const auto gsize_and_lsize_x = work_ranges(work_group_size_3dx, b[0]);
+                const auto gsize_and_lsize_y = work_ranges(work_group_size_3dy, b[1]);
+                const auto gsize_and_lsize_z = work_ranges(work_group_size_3dz, b[2]);
+                return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first),
+                                 cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
+            }
+            default:
+                throw runtime_error("NDRanges: maximum of three dimensions!");
+        }
+    }
+    else{
+        switch (b.size()) {
+            case 1: {
+                const auto gsize_and_lsize = work_ranges(128, b[0]);
+                return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
+            }
+            case 2: {
+                const auto gsize_and_lsize_x = work_ranges(128, b[0]);
+                const auto gsize_and_lsize_y = work_ranges(1, b[1]);
+                return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first),
+                                 cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second));
+            }
+            case 3: {
+                const auto gsize_and_lsize_x = work_ranges(128, b[0]);
+                const auto gsize_and_lsize_y = work_ranges(1, b[1]);
+                const auto gsize_and_lsize_z = work_ranges(1, b[2]);
+                return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first),
+                                 cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
+            }
+            default:
+                throw runtime_error("NDRanges: maximum of three dimensions!");
+        }
+    }
 }
 
 cl::Program EngineOpenCL::getFunction(const string &source) {
@@ -435,16 +440,23 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     // TODO: Test for setting!
     // Force 1D kernel on the deepest available rank
     vector<uint64_t> thread_stack2;
-    size_t dims = thread_stack.size();
-    size_t lowest_stride = thread_stack[dims-1];
-    thread_stack2.push_back(lowest_stride);
 
-    // Fill kernel param with dims of 1 element to exploit some parallelism better
-    for (int i=1; i<std::min(dims, (size_t) 3); i++){
-        thread_stack2.push_back(1);
+    int64_t opt_access_pattern = comp.config.defaultGet<int64_t>("optimize_access_pattern", 0);
+    if (opt_access_pattern !=0){
+        size_t dims = thread_stack.size();
+        size_t lowest_stride = thread_stack[dims-1];
+        thread_stack2.push_back(lowest_stride);
+
+        // Fill kernel param with dims of 1 element to exploit some parallelism better
+        for (int i=1; i<std::min(dims, (size_t) opt_access_pattern); i++){
+            thread_stack2.push_back(1);
+        }
+
+        assert (thread_stack2.size() == std::min(dims, (size_t) opt_access_pattern));
     }
-
-    assert (thread_stack2.size() == std::min(dims, (size_t) 3));
+    else{
+        thread_stack2 = thread_stack;
+    }
 
 
     /* cl::Buffer *buf = createBuffer(base); */
@@ -605,8 +617,15 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) {
 
     // Not actually lowest, but the one we assume is lowest in most cases
-    size_t axis_lowest_stride = thread_stack.size()-1;
-    cout << "thread_stack size: " << thread_stack.size() << " " << axis_lowest_stride << endl;
+    int64_t opt_access_pattern = comp.config.defaultGet<int64_t>("optimize_access_pattern", 0);
+    size_t axis_lowest_stride;
+    if (opt_access_pattern == 0){
+        axis_lowest_stride = -1; // Disable in writeBlock->loopHeadWriter
+    }
+    else{
+        axis_lowest_stride = thread_stack.size()-1;
+        cout << "thread_stack size: " << thread_stack.size() << " " << axis_lowest_stride << endl;
+    }
 
     /* size_t lowest_stride = thread_stack[axis_lowest_stride]; */
     /* size_t lowest_stride = -1; // Disable */
@@ -696,15 +715,14 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
 
         ss << "#define __DATA_TYPE__ " << writeType(std::get<1>(sweep_info).base->type) <<"\n";
 
-        if (axis_lowest_stride == 0){
+        if (opt_access_pattern == 0){
             const auto local_range = NDRanges(thread_stack).second;
             ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
             for (size_t i = 0; i < local_range.dimensions(); i++){
                 ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n";
             }
         } else {
-            ss << "// Forced 1D kernel\n";
-
+            ss << "// Optimizing Access Pattern!\n";
             ss << "#define KERNEL_1D\n";
             ss << "#define DIM1 " << thread_stack[axis_lowest_stride] << "\n";
             ss << "#define DIM2 1\n";
@@ -728,11 +746,11 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "__DATA_TYPE__ element;\n";
     }
 
-    // Write the IDs of the threaded blocks
+    // Write the IDs and overflow guards of the threaded blocks
     if (not thread_stack.empty()) {
         util::spaces(ss, 4);
         ss << "// The IDs of the threaded blocks:\n";
-        if (axis_lowest_stride == 0){
+        if (opt_access_pattern == 0){
             for (unsigned int i=0; i < thread_stack.size(); ++i) {
                 util::spaces(ss, 4);
                 // Special case for vector-to-scalar reductions and rank0 sweeps
@@ -748,8 +766,8 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             }
         } else {
             util::spaces(ss, 4);
-            ss << "// Forced 1D kernel.\n";
-            /* size_t i = axis_lowest_stride; */
+            ss << "// Optimizing Access Pattern!\n";
+
             if (is_sweep){
                 util::spaces(ss, 4);
                 // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
@@ -757,10 +775,8 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                     << "if (g" << axis_lowest_stride << " < " << thread_stack[axis_lowest_stride] << ") { // Prevent overflow in calculations, but keep thread for reduction\n";
             }
             else{
-                // Fill kernel param with dims of 1 element to exploit some parallelism better
-
-                for (int i=0; i<std::min(thread_stack.size(), (size_t) 3); i++){
-                    cout << "Insert base: " << i << endl;
+                // Injecting optimized kernel parameter to IDs
+                for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
                     util::spaces(ss, 4);
                     ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride-i << " = get_global_id(" << i << "); "
                         << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { return; } // Prevent overflow\n";
@@ -799,11 +815,19 @@ void EngineOpenCL::loopHeadWriter(const jitk::SymbolTable &symbols,
     /*     cout << thread_stack[i] << " "; */
     /* } */
     /* cout << static_cast<size_t >(block.rank) << endl; */
+    int64_t opt_access_pattern = comp.config.defaultGet<int64_t>("optimize_access_pattern", 0);
 
-    if (parallelize_rank != -1){
-        if (parallelize_rank == static_cast<size_t >(block.rank) ||
-                (parallelize_rank > 0 && parallelize_rank-1 == static_cast<size_t >(block.rank)) ||
-                (parallelize_rank > 1 && parallelize_rank-2 == static_cast<size_t >(block.rank))){
+    if (opt_access_pattern > 0 && parallelize_rank != -1){
+
+        (parallelize_rank - static_cast<size_t >(block.rank)) <= opt_access_pattern;
+
+        cout << "THIS HERE: " << parallelize_rank << ">=" << static_cast<size_t >(block.rank) << "&&" << static_cast<size_t >(block.rank) << ">" << ((int64_t) parallelize_rank) << "-" << opt_access_pattern << endl;
+        cout << (parallelize_rank >= static_cast<size_t >(block.rank) && ((int64_t) static_cast<size_t >(block.rank)) > ((int64_t) parallelize_rank) - opt_access_pattern) << " = " << (parallelize_rank >= static_cast<size_t >(block.rank)) << " && " << (((int64_t) static_cast<size_t >(block.rank)) > ((int64_t) parallelize_rank) - opt_access_pattern) << endl;
+        if (parallelize_rank >= static_cast<size_t >(block.rank) && ((int64_t) static_cast<size_t >(block.rank)) > ((int64_t) parallelize_rank) - opt_access_pattern){
+        /* if (parallelize_rank >= opt_access_pattern-1 && parallelize_rank-opt_access_pattern-1 <= static_cast<size_t >(block.rank)){ */
+        /* if (parallelize_rank == static_cast<size_t >(block.rank) || */
+        /*         (parallelize_rank > 0 && parallelize_rank-1 == static_cast<size_t >(block.rank)) || */
+        /*         (parallelize_rank > 1 && parallelize_rank-2 == static_cast<size_t >(block.rank))){ */
             out << "{const " << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << ";";
         }
         else {

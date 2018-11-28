@@ -150,7 +150,8 @@ public:
             std::vector<uint64_t> thread_stack;
             /* cout << "thread_stack" << endl; */
             if (kernel._block_list.size() == 1 and kernel_is_computing) {
-                uint64_t nranks = parallel_ranks(kernel._block_list[0].getLoop(), -1).first;
+                int64_t opt_access_pattern = comp.config.defaultGet<int64_t>("optimize_access_pattern", 0);
+                uint64_t nranks = parallel_ranks(kernel._block_list[0].getLoop(), opt_access_pattern == 0 ? 3 : -1).first;
                 if (num_threads > 0 and nranks > 0) {
                     /* cout << kernel.stride << ", "; */
                     uint64_t nthds = static_cast<uint64_t>(kernel.size);

@@ -724,13 +724,8 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "#define __DATA_TYPE__ " << writeType(std::get<1>(sweep_info).base->type) <<"\n";
 
         const auto local_range = NDRanges(thread_stack).second;
-        if (opt_access_pattern == 0){
-            ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
-        }
-        else{
-            ss << "// Optimizing Access Pattern!\n";
-            ss << "#define KERNEL_1D\n";
-        }
+        ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
+        assert (local_range.dimensions() == 1); // Don't allow multi-dim before we are ready
 
         for (size_t i = 0; i < local_range.dimensions(); i++){
             ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n";

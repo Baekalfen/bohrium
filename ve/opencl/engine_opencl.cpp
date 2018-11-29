@@ -104,7 +104,8 @@ EngineOpenCL::EngineOpenCL(component::ComponentVE &comp, jitk::Statistics &stat)
     work_group_size_2dy(comp.config.defaultGet<cl_ulong>("work_group_size_2dy", 4)),
     work_group_size_3dx(comp.config.defaultGet<cl_ulong>("work_group_size_3dx", 32)),
     work_group_size_3dy(comp.config.defaultGet<cl_ulong>("work_group_size_3dy", 2)),
-    work_group_size_3dz(comp.config.defaultGet<cl_ulong>("work_group_size_3dz", 2))
+    work_group_size_3dz(comp.config.defaultGet<cl_ulong>("work_group_size_3dz", 2)),
+    opt_access_pattern(comp.config.defaultGet<int64_t>("optimize_access_pattern", 0))
 {
     vector<cl::Platform> platforms;
     cl::Platform::get(&platforms);
@@ -235,7 +236,6 @@ pair<uint32_t, uint32_t> work_ranges(uint64_t work_group_size, int64_t block_siz
 }
 
 pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &thread_stack) const {
-    int64_t opt_access_pattern = comp.config.defaultGet<int64_t>("optimize_access_pattern", 0);
     const auto &b = thread_stack;
 
 /*     cout << thread_stack.size() << " " << opt_access_pattern << endl; */
@@ -448,7 +448,6 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     // Force 1D kernel on the deepest available rank
     vector<uint64_t> thread_stack2;
 
-    int64_t opt_access_pattern = comp.config.defaultGet<int64_t>("optimize_access_pattern", 0);
     if (opt_access_pattern !=0){
         size_t dims = thread_stack.size();
         size_t lowest_stride = thread_stack[dims-1];
@@ -625,7 +624,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) {
 
     // Not actually lowest, but the one we assume is lowest in most cases
-    int64_t opt_access_pattern = comp.config.defaultGet<int64_t>("optimize_access_pattern", 0);
     size_t axis_lowest_stride;
     if (opt_access_pattern == 0){
         axis_lowest_stride = -1; // Disable in writeBlock->loopHeadWriter
@@ -817,19 +815,13 @@ void EngineOpenCL::loopHeadWriter(const jitk::SymbolTable &symbols,
     /*     cout << thread_stack[i] << " "; */
     /* } */
     /* cout << static_cast<size_t >(block.rank) << endl; */
-    int64_t opt_access_pattern = comp.config.defaultGet<int64_t>("optimize_access_pattern", 0);
 
     if (opt_access_pattern > 0 && parallelize_rank != -1){
 
         (parallelize_rank - static_cast<size_t >(block.rank)) <= opt_access_pattern;
 
-        cout << "THIS HERE: " << parallelize_rank << ">=" << static_cast<size_t >(block.rank) << "&&" << static_cast<size_t >(block.rank) << ">" << ((int64_t) parallelize_rank) << "-" << opt_access_pattern << endl;
-        cout << (parallelize_rank >= static_cast<size_t >(block.rank) && ((int64_t) static_cast<size_t >(block.rank)) > ((int64_t) parallelize_rank) - opt_access_pattern) << " = " << (parallelize_rank >= static_cast<size_t >(block.rank)) << " && " << (((int64_t) static_cast<size_t >(block.rank)) > ((int64_t) parallelize_rank) - opt_access_pattern) << endl;
-        if (parallelize_rank >= static_cast<size_t >(block.rank) && ((int64_t) static_cast<size_t >(block.rank)) > ((int64_t) parallelize_rank) - opt_access_pattern){
-        /* if (parallelize_rank >= opt_access_pattern-1 && parallelize_rank-opt_access_pattern-1 <= static_cast<size_t >(block.rank)){ */
-        /* if (parallelize_rank == static_cast<size_t >(block.rank) || */
-        /*         (parallelize_rank > 0 && parallelize_rank-1 == static_cast<size_t >(block.rank)) || */
-        /*         (parallelize_rank > 1 && parallelize_rank-2 == static_cast<size_t >(block.rank))){ */
+        if (parallelize_rank >= static_cast<size_t >(block.rank) &&
+            ((int64_t) static_cast<size_t >(block.rank)) > ((int64_t) parallelize_rank) - opt_access_pattern){
             out << "{const " << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << ";";
         }
         else {

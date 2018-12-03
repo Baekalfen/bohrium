@@ -293,7 +293,13 @@ private:
                         i++;
                         /* break; // There are two views for a reduction, we just need the first, which is the destination. */
                     }
-                    sweep_info = std::make_tuple(sweep->opcode, l, r);
+                    /* sweep_info = std::make_tuple(sweep->opcode, l, r); */
+                    if (bh_opcode_is_accumulate(sweep->opcode) ||
+                            (bh_opcode_is_reduction(sweep->opcode) &&
+                             r.ndim == 1 && r.shape[0] == 1 &&
+                             l.ndim == 1 && l.shape[0] > 1)) {
+                        sweep_info = std::make_tuple(sweep->opcode, l, r);
+                    }
                 }
             }
         }

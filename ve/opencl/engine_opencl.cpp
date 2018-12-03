@@ -269,10 +269,10 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
         }
     }
     else{
-        const int max_x = 1024;
-        const int max_y = 1024;
-        const int max_z = 64;
-        const int max_size = 1024;
+        const int max_size = 512;
+        const int max_x = min(max_size, 1024);
+        const int max_y = min(max_size, 1024);
+        const int max_z = min(max_size, 64);
         switch (b.size()) {
             case 1: {
                 const int x = min(max_x,(int) b[0]);

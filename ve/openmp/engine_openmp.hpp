@@ -64,6 +64,7 @@ public:
                      const jitk::SymbolTable &symbols,
                      const std::vector<bh_base *> &kernel_temps,
                      uint64_t codegen_hash,
+                     uint64_t source_hash,
                      std::stringstream &ss) override;
 
      // Writing the OpenMP header, which include "parallel for" and "simd"

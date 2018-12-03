@@ -96,7 +96,7 @@ void EngineCPU::handleExecution(BhIR *bhir, bool opencl_scalar_reduction=false) 
                 // In debug mode, we check that the cached source code is correct
                 #ifndef NDEBUG
                     stringstream ss;
-                    writeKernel(kernel, symbols, {}, lookup.second, ss);
+                    writeKernel(kernel, symbols, {}, lookup.second, 0, ss);
                     if (ss.str().compare(lookup.first) != 0) {
                         cout << "\nCached source code: \n" << lookup.first;
                         cout << "\nReal source code: \n" << ss.str();
@@ -107,7 +107,7 @@ void EngineCPU::handleExecution(BhIR *bhir, bool opencl_scalar_reduction=false) 
             } else {
                 const auto tcodegen = chrono::steady_clock::now();
                 stringstream ss;
-                writeKernel(kernel, symbols, {}, lookup.second, ss);
+                writeKernel(kernel, symbols, {}, lookup.second, 0, ss);
                 string source = ss.str();
                 stat.time_codegen += chrono::steady_clock::now() - tcodegen;
 

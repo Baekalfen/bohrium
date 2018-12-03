@@ -111,6 +111,7 @@ public:
                      const jitk::SymbolTable &symbols,
                      const std::vector<uint64_t> &thread_stack,
                      uint64_t codegen_hash,
+                     uint64_t source_hash,
                      std::stringstream &ss,
                      const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) override;
 

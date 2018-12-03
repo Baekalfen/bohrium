@@ -78,6 +78,7 @@ public:
                              const SymbolTable &symbols,
                              const std::vector<uint64_t> &thread_stack,
                              uint64_t codegen_hash,
+                             uint64_t source_hash,
                              std::stringstream &ss,
                              const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) = 0;
 
@@ -144,7 +145,7 @@ public:
             // We can skip a lot of steps if the kernel does no computation
             const bool kernel_is_computing = not kernel.isSystemOnly();
 
-            cout << "\n\nHandle Execution: \n" << kernel << endl;
+            cout << "\n\nUNIQUEID handleExecution \n" << kernel << "UNIQUEID handleExecution: Done." << endl;
 
             // Find the parallel blocks
             std::vector<uint64_t> thread_stack;
@@ -317,7 +318,7 @@ private:
             // In debug mode, we check that the cached source code is correct
             #ifndef NDEBUG
                 stringstream ss;
-                writeKernel(kernel, symbols, thread_stack, lookup.second, ss, sweep_info);
+                writeKernel(kernel, symbols, thread_stack, lookup.second, 0, ss, sweep_info);
                 if (ss.str().compare(lookup.first) != 0) {
                     cout << "\nCached source code: \n" << lookup.first;
                     cout << "\nReal source code: \n" << ss.str();
@@ -328,7 +329,7 @@ private:
         } else {
             const auto tcodegen = chrono::steady_clock::now();
             stringstream ss;
-            writeKernel(kernel, symbols, thread_stack, lookup.second, ss, sweep_info);
+            writeKernel(kernel, symbols, thread_stack, lookup.second, 0, ss, sweep_info);
             string source = ss.str();
             stat.time_codegen += chrono::steady_clock::now() - tcodegen;
             execute(symbols, source, lookup.second, thread_stack, constants, sweep_info);

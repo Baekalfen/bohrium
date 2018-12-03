@@ -58,6 +58,7 @@ private:
 
     // Returns the global and local work OpenCL ranges based on the 'thread_stack'
     std::pair<cl::NDRange, cl::NDRange> NDRanges(const std::vector<uint64_t> &thread_stack) const;
+    std::pair<cl::NDRange, cl::NDRange> NDRanges(const std::vector<uint64_t> &thread_stack, uint64_t hash) const;
 
     // A map of allocated buffers on the device
     std::map<bh_base *, cl::Buffer *> buffers;
@@ -103,6 +104,7 @@ public:
                      const jitk::SymbolTable &symbols,
                      const std::vector<uint64_t> &thread_stack,
                      uint64_t codegen_hash,
+                     uint64_t source_hash,
                      std::stringstream &ss,
                      const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) override;
 

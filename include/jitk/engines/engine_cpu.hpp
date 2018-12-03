@@ -43,6 +43,7 @@ public:
                              const SymbolTable &symbols,
                              const std::vector<bh_base *> &kernel_temps,
                              uint64_t codegen_hash,
+                             uint64_t source_hash,
                              std::stringstream &ss) = 0;
 
     virtual void execute(const jitk::SymbolTable &symbols,

@@ -311,6 +311,7 @@ void EngineOpenMP::writeKernel(const LoopB &kernel,
                                const jitk::SymbolTable &symbols,
                                const std::vector<bh_base *> &kernel_temps,
                                uint64_t codegen_hash,
+                               uint64_t source_hash,
                                std::stringstream &ss) {
 
     assert(kernel.rank == -1);

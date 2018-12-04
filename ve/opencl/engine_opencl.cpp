@@ -311,34 +311,21 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
         }
     }
     else{
-        const int max_size = 512;
-        const int max_x = min(max_size, 1024);
-        const int max_y = min(max_size, 1024);
-        const int max_z = min(max_size, 64);
         switch (b.size()) {
             case 1: {
-                const int x = min(max_x,(int) b[0]);
-                cout << "(x)" << "(" << x << ")" << endl;
-                const auto gsize_and_lsize = work_ranges(x, b[0]);
+                const auto gsize_and_lsize = work_ranges(work_group_size_1dx, b[0]);
                 return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
             }
             case 2: {
-                const int x = min(max_x,(int) b[0]);
-                const int y = min(min(max_y,(int) b[1]), max_size/x);
-                cout << "(x,y)" << "(" << x << ", " << y << ")" << endl;
-                const auto gsize_and_lsize_x = work_ranges(x, b[0]);
-                const auto gsize_and_lsize_y = work_ranges(y, b[1]);
+                const auto gsize_and_lsize_x = work_ranges(work_group_size_1dx, b[0]);
+                const auto gsize_and_lsize_y = work_ranges(1, b[1]);
                 return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first),
                                  cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second));
             }
             case 3: {
-                const int x = min(max_x,(int) b[0]);
-                const int y = min(min(max_y,(int) b[1]), max_size/x);
-                const int z = min(min(max_z,(int) b[2]), max_size/(x*y));
-                cout << "(x,y,z)" << "(" << x << ", " << y << ", " << z << ")" << endl;
-                const auto gsize_and_lsize_x = work_ranges(x, b[0]);
-                const auto gsize_and_lsize_y = work_ranges(y, b[1]);
-                const auto gsize_and_lsize_z = work_ranges(z, b[2]);
+                const auto gsize_and_lsize_x = work_ranges(work_group_size_1dx, b[0]);
+                const auto gsize_and_lsize_y = work_ranges(1, b[1]);
+                const auto gsize_and_lsize_z = work_ranges(1, b[2]);
                 return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first),
                                  cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
             }

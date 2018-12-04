@@ -105,7 +105,8 @@ EngineOpenCL::EngineOpenCL(component::ComponentVE &comp, jitk::Statistics &stat)
     work_group_size_3dx(comp.config.defaultGet<cl_ulong>("work_group_size_3dx", 32)),
     work_group_size_3dy(comp.config.defaultGet<cl_ulong>("work_group_size_3dy", 2)),
     work_group_size_3dz(comp.config.defaultGet<cl_ulong>("work_group_size_3dz", 2)),
-    opt_access_pattern(comp.config.defaultGet<int64_t>("optimize_access_pattern", 0))
+    opt_access_pattern(comp.config.defaultGet<int64_t>("optimize_access_pattern", 0)),
+    autotuner(comp.config.defaultGet<bool>("autotuner", false))
 {
     vector<cl::Platform> platforms;
     cl::Platform::get(&platforms);
@@ -246,11 +247,12 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
     const auto dx = comp.config.defaultGet<cl_ulong>(kernel_name + "_dx", FIXME);
     const auto dy = comp.config.defaultGet<cl_ulong>(kernel_name + "_dy", FIXME);
     const auto dz = comp.config.defaultGet<cl_ulong>(kernel_name + "_dz", FIXME);
-    cout << "UNIQUEID kernel_name " << kernel_name + "_dx " << dx << " " << dy << " " << dz << endl;
 
     const auto &b = thread_stack;
-    /* cout << "Block to analyze: " << b.size() << endl << block; */
-    cout << "UNIQUEID Threadstack " << b.size() << ": " << b[0] << " " << b[1] << " " << b[2] << " " << endl;
+    if (autotuner){
+        cout << "UNIQUEID kernel_name " << kernel_name + "_dx " << dx << " " << dy << " " << dz << endl;
+        cout << "UNIQUEID Threadstack " << b.size() << ": " << b[0] << " " << b[1] << " " << b[2] << " " << endl;
+    }
 
     int dims = b.size();
     switch (dims) {
@@ -520,7 +522,13 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
 
 
     /* cl::Buffer *buf = createBuffer(base); */
-    const auto ranges = NDRanges(thread_stack2, hash);
+    pair<cl::NDRange, cl::NDRange> ranges;
+    if (autotuner) {
+        ranges = NDRanges(thread_stack2, hash);
+    }
+    else{
+        ranges = NDRanges(thread_stack2);
+    }
     size_t local_size = ranges.second.local_size();
     /* size_t work_groups = ranges.first.dim(0) / ranges.second.dim(0); // TODO: Multi-dim kernels! */
     size_t work_groups = ranges.first.work_groups(ranges.second);
@@ -557,7 +565,12 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
 
         if (bh_opcode_is_accumulate(std::get<0>(sweep_info))){
             sweep_local_size = local_size;
-            post_ranges = NDRanges(thread_stack2, hash);
+            if (autotuner) {
+                post_ranges = NDRanges(thread_stack2, hash);
+            }
+            else{
+                post_ranges = NDRanges(thread_stack2);
+            }
             post_sweep = cl::Kernel(program, "scan_2pass_postprocess");
 
             post_sweep.setArg(i++, *getBuffer(std::get<2>(sweep_info).base)); // Output array
@@ -592,9 +605,10 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
 
     auto f = ranges.first;
     auto s = ranges.second;
-    std::cout << "Kernel params:" << std::endl
-        << "UNIQUEID Totalwork " << f.dimensions() << " " << f[0] << " " << f[1] << " " << f[2] << std::endl
-        << "UNIQUEID Workgroup " << f.dimensions() << " " << s[0] << " " << s[1] << " " << s[2] << std::endl << std::endl;
+    if (autotuner){
+        cout << "UNIQUEID Totalwork " << f.dimensions() << " " << f[0] << " " << f[1] << " " << f[2] << endl
+             << "UNIQUEID Workgroup " << f.dimensions() << " " << s[0] << " " << s[1] << " " << s[2] << endl << endl;
+    }
     queue.finish();
     auto texec = chrono::steady_clock::now() - start_exec;
     stat.time_exec += texec;
@@ -780,8 +794,8 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
 
         ss << "#define __DATA_TYPE__ " << writeType(std::get<1>(sweep_info).base->type) <<"\n";
 
-        const bool dynamic_sizing = false;
-        if (dynamic_sizing) {
+        // Hardcoding parameters is not compatible with auto-tuner
+        if (autotuner) {
             ss << "#define KERNEL_" << thread_stack.size() << "D\n";
 
             for (size_t i = 0; i < thread_stack.size(); i++){

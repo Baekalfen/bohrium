@@ -397,6 +397,11 @@ class Ufunc(object):
         if (not self.info['name'].startswith("logical")) and dtype_equal(ary, np.bool):
             ary = array_create.array(ary, dtype=np.uint64)
 
+        # Transposing the reductions, to move the axes to the back for optimal GPGPU access pattern
+        indices = range(ary.ndim)
+        ary = ary.transpose(filter(lambda x: not x in axis, indices) + axis)
+        axis = indices[-len(axis):]
+
         if len(axis) == 1:
             # One axis reduction we can handle directly
             axis = axis[0]
@@ -425,20 +430,29 @@ class Ufunc(object):
 
             return out
         else:
-            # Let's sort the axis indexes by their stride
-            # We use column major when a GPU is in the stack
-            column_major = bh_info.is_opencl_in_stack() or bh_info.is_cuda_in_stack()
-            strides = []
-            for i, s in enumerate(ary.strides):
-                if i in axis:
-                    strides.append((i, abs(s)))
-            axis = [i[0] for i in sorted(strides, key=lambda x: x[1], reverse=column_major)]
+            # If we are reducing to a scalar across several dimensions, reshape to a vector
+            if ary.ndim == len(axis) and ary.flags['C_CONTIGUOUS']:
+                ary = ary.flatten(always_copy=False)
+                ary = self.reduce(ary)
+            else:
+                # Let's reduce the last axis
+                # TODO: Flatten as many inner dimensions as possible!
+                ary = self.reduce(ary, axis[-1])
+                ary = self.reduce(ary, axis[:-1])
+            # # Let's sort the axis indexes by their stride
+            # # We use column major when a GPU is in the stack
+            # column_major = bh_info.is_opencl_in_stack() or bh_info.is_cuda_in_stack()
+            # strides = []
+            # for i, s in enumerate(ary.strides):
+            #     if i in axis:
+            #         strides.append((i, abs(s)))
+            # axis = [i[0] for i in sorted(strides, key=lambda x: x[1], reverse=column_major)]
 
-            # Let's reduce the first axis
-            ary = self.reduce(ary, axis[0])
-            # Then we reduce the rest of the axes and remember to correct the axis values
-            axis = [i if i < axis[0] else i-1 for i in axis[1:]]
-            ary = self.reduce(ary, axis)
+            # # Let's reduce the first axis
+            # ary = self.reduce(ary, axis[0])
+            # # Then we reduce the rest of the axes and remember to correct the axis values
+            # axis = [i if i < axis[0] else i-1 for i in axis[1:]]
+            # ary = self.reduce(ary, axis)
             # Finally, we may have to copy the result to 'out'
             if out is not None:
                 out[...] = ary

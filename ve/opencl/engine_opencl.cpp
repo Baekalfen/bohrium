@@ -22,6 +22,7 @@ If not, see <http://www.gnu.org/licenses/>.
 #include <iostream>
 
 #include <bh_instruction.hpp>
+#include <bh_metasweep.hpp>
 #include <bh_component.hpp>
 #include "bh_type.hpp"
 
@@ -401,7 +402,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
                            uint64_t codegen_hash,
                            const vector<uint64_t> &thread_stack,
                            const vector<const bh_instruction*> &constants,
-                           const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) {
+                           const std::vector<bh_metasweep> sweep_info) {
     // Notice, we use a "pure" hash of `source` to make sure that the `source_filename` always
     // corresponds to `source` even if `codegen_hash` is buggy.
     uint64_t hash = util::hash(source);
@@ -537,17 +538,17 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     cl::Buffer *reduction_mem = nullptr;
     size_t dtype_size;
     // Add arguments for first reduction-pass to the end of the regular kernel
-    if (std::get<0>(sweep_info) != BH_NONE) {
+    if (sweep_info.size() > 0 && sweep_info.back().is_scalar()) {
 
-        dtype_size = bh_type_size(std::get<1>(sweep_info).base->type);
+        dtype_size = bh_type_size(sweep_info.back().left_operand.base->type);
 
-        if (work_groups > 1 || bh_opcode_is_accumulate(std::get<0>(sweep_info))){ // Allocate temporary memory for storing sub-results
+        if (work_groups > 1 || bh_opcode_is_accumulate(sweep_info.back().opcode)){ // Allocate temporary memory for storing sub-results
             reduction_mem = reinterpret_cast<cl::Buffer *>(malloc_cache.alloc(work_groups*dtype_size));
             opencl_kernel.setArg(i++, *reduction_mem);
         }
         else{ // When there is only one work-group, we can calculate the reduction in one pass
-            assert (bh_opcode_is_reduction(std::get<0>(sweep_info))); // not supported for scan yet
-            opencl_kernel.setArg(i++, *getBuffer(std::get<2>(sweep_info).base));
+            assert (bh_opcode_is_reduction(sweep_info.back().opcode)); // not supported for scan yet
+            opencl_kernel.setArg(i++, *getBuffer(sweep_info.back().right_operand.base));
         }
         opencl_kernel.setArg(i++, local_size*dtype_size, NULL); // Allocate local memory for reduction
     }
@@ -556,14 +557,14 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     queue.enqueueNDRangeKernel(opencl_kernel, cl::NullRange, ranges.first, ranges.second);
 
     // Call a post-reduction kernel, which finalizes the reduction
-    if (std::get<0>(sweep_info) != BH_NONE && (work_groups > 1 || bh_opcode_is_accumulate(std::get<0>(sweep_info)))) {
+    if (sweep_info.size() > 0 && sweep_info.back().is_scalar() && (work_groups > 1 || bh_opcode_is_accumulate(sweep_info.back().opcode))) {
         i = 0;
 
         cl::Kernel post_sweep;
         size_t sweep_local_size;
         pair<cl::NDRange, cl::NDRange> post_ranges;
 
-        if (bh_opcode_is_accumulate(std::get<0>(sweep_info))){
+        if (bh_opcode_is_accumulate(sweep_info.back().opcode)){
             sweep_local_size = local_size;
             if (autotuner) {
                 post_ranges = NDRanges(thread_stack2, hash);
@@ -573,10 +574,10 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
             }
             post_sweep = cl::Kernel(program, "scan_2pass_postprocess");
 
-            post_sweep.setArg(i++, *getBuffer(std::get<2>(sweep_info).base)); // Output array
-            bh_constant len = bh_constant((uint64_t) std::get<1>(sweep_info).shape[0], bh_type::UINT64);
+            post_sweep.setArg(i++, *getBuffer(sweep_info.back().right_operand.base)); // Output array
+            bh_constant len = bh_constant((uint64_t) sweep_info.back().left_operand.shape[0], bh_type::UINT64);
             post_sweep.setArg(i++, len.value.uint32);
-            post_sweep.setArg(i++, *getBuffer(std::get<1>(sweep_info).base)); // Input array
+            post_sweep.setArg(i++, *getBuffer(sweep_info.back().left_operand.base)); // Input array
         }
         else{
             sweep_local_size = 1024;
@@ -591,7 +592,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
             /*     uint64_t t2 = (uint64_t) view->stride[j]; */
             /*     opencl_kernel.setArg(i++, t2); */
             /* } */
-            post_sweep.setArg(i++, *getBuffer(std::get<2>(sweep_info).base)); // Input array
+            post_sweep.setArg(i++, *getBuffer(sweep_info.back().right_operand.base)); // Input array
         }
 
         post_sweep.setArg(i++, sweep_local_size*dtype_size, NULL); // Allocate local memory for reduction
@@ -614,7 +615,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     stat.time_exec += texec;
     stat.time_per_kernel[source_filename].register_exec_time(texec);
 
-    if (std::get<0>(sweep_info) != BH_NONE && work_groups > 1) {
+    if (sweep_info.size() > 0 && sweep_info.back().is_scalar() && work_groups > 1) {
         malloc_cache.free(work_groups*dtype_size, reduction_mem);
     }
 }
@@ -694,7 +695,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                                uint64_t codegen_hash,
                                uint64_t source_hash,
                                stringstream &ss,
-                               const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) {
+                               const std::vector<bh_metasweep> sweep_info) {
 
     // Not actually lowest, but the one we assume is lowest in most cases
     size_t axis_lowest_stride;
@@ -745,15 +746,15 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "#include <kernel_dependencies/random123_opencl.h>\n";
     }
 
-    if (std::get<0>(sweep_info) != BH_NONE) {
+    if (sweep_info.size() > 0 && sweep_info.back().is_scalar()) {
         ss << "#define NEUTRAL ";
-        jitk::sweep_identity(std::get<0>(sweep_info), std::get<1>(sweep_info).base->type).pprint(ss, true);
+        jitk::sweep_identity(sweep_info.back().opcode, sweep_info.back().left_operand.base->type).pprint(ss, true);
         ss << "\n";
 
         ss << "#define OPERATOR(a,b) (";
         const std::vector<string> ops = std::vector<string> {"a", "b"};
-        /* jitk::write_operation(bh_instruction(sweep_info.first, views), ops, ss, true); */
-        switch (std::get<0>(sweep_info)) {
+        /* jitk::write_operation(bh_instruction(sweep_info.back().first, views), ops, ss, true); */
+        switch (sweep_info.back().opcode) {
             case BH_BITWISE_AND_REDUCE:
                 ss << ops[0] << " & " << ops[1];
                 break;
@@ -792,7 +793,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << ")\n";
         ss << "\n";
 
-        ss << "#define __DATA_TYPE__ " << writeType(std::get<1>(sweep_info).base->type) <<"\n";
+        ss << "#define __DATA_TYPE__ " << writeType(sweep_info.back().left_operand.base->type) <<"\n";
 
         // Hardcoding parameters is not compatible with auto-tuner
         if (autotuner) {
@@ -817,14 +818,14 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     ss << "\n";
 
 
-    bool is_sweep = (std::get<0>(sweep_info) != BH_NONE);
+    bool is_scalar_reduction = (sweep_info.size() > 0 && sweep_info.back().is_scalar());
 
     // Write the header of the execute function
     ss << "__kernel void execute_" << codegen_hash;
-    writeKernelFunctionArguments(symbols, ss, "__global", is_sweep);
+    writeKernelFunctionArguments(symbols, ss, "__global", sweep_info);
     ss << " {\n";
 
-    if (is_sweep){
+    if (is_scalar_reduction){
         util::spaces(ss, 4);
         ss << "__DATA_TYPE__ element;\n";
     }
@@ -837,47 +838,72 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             for (unsigned int i=0; i < thread_stack.size(); ++i) {
                 util::spaces(ss, 4);
                 // Special case for vector-to-scalar reductions and rank0 sweeps
-                if (is_sweep && i == 0){
+                if (is_scalar_reduction && i == 0){
                     // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
                     ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
-                        << "if (g" << i << " < " << thread_stack[i] << ") { // Prevent overflow in calculations, but keep thread for reduction\n";
+                        << "if (g" << i << " < " << thread_stack[i] << ") { goto exit; } // Prevent overflow in calculations, but keep thread for reduction\n";
                 }
                 else{
                     ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
-                        << "if (g" << i << " >= " << thread_stack[i] << ") { return; } // Prevent overflow\n";
+                        << "if (g" << i << " >= " << thread_stack[i] << ") { goto exit; } // Prevent overflow\n";
                 }
             }
         } else {
             util::spaces(ss, 4);
             ss << "// Optimizing Access Pattern!\n";
 
-            if (is_sweep){
+
+            // Injecting optimized kernel parameter to IDs
+            const bool seg_reduce = (sweep_info.size() == 1) && sweep_info.front().is_segment(); // TODO: It's ok to have size()>1 as long as only one rank has the seg_reduce and there is an scalar reduction
+            for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
+
                 util::spaces(ss, 4);
-                // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
-                ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride << " = get_global_id(0); "
-                    << "if (g" << axis_lowest_stride << " < " << thread_stack[axis_lowest_stride] << ") { // Prevent overflow in calculations, but keep thread for reduction\n";
-            }
-            else{
-                // Injecting optimized kernel parameter to IDs
-                for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
-                    util::spaces(ss, 4);
-                    ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride-i << " = get_global_id(" << i << "); "
-                        << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { return; } // Prevent overflow\n";
+                if (is_scalar_reduction){
+                    // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
+                    ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride << " = get_global_id(0); "
+                        << "if (g" << axis_lowest_stride << " >= " << thread_stack[axis_lowest_stride] << ") { ";
                 }
+                else{
+                    ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride-i << " = get_global_id(" << i << "); "
+                        << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { ";
+                }
+
+                string goto_label;
+                if (seg_reduce){
+                    goto_label = "seg_reduce";
+                }
+                else {
+                    goto_label = "skip_block";
+                }
+
+                ss << "goto " << goto_label << "; } // Prevent overflow\n";
             }
+
         }
         ss << "\n";
     }
 
     // Write inner blocks
-    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, is_sweep, axis_lowest_stride);
+    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, sweep_info, axis_lowest_stride);
 
-    if (not thread_stack.empty() && is_sweep){
+    if (not thread_stack.empty() && (sweep_info.size() == 1) && sweep_info.back().is_scalar()){
+        util::spaces(ss, 4);
         // Inject neutral element, when there is no data in global memory to read
-        ss << "    }else{\n        element = NEUTRAL;\n";
+        ss << "if (false) {\n";
+        util::spaces(ss, 8);
+        ss << "skip_block: ;\n";
+        util::spaces(ss, 8);
+        ss << "element = NEUTRAL;\n";
+        util::spaces(ss, 4);
+        ss << "}\n";
 
         // Call special rank0 preprocessing for both reduce and scan
-        ss << "    }\n\n    reduce_2pass_preprocess(element, a, res);\n";
+        util::spaces(ss, 4);
+        ss << "reduce_2pass_preprocess(element, a, res);\n";
+    }
+    else{
+        util::spaces(ss, 4);
+        ss << "skip_block: ;\n";
     }
     ss << "}\n\n";
 }

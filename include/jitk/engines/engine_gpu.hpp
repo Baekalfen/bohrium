@@ -30,6 +30,7 @@ If not, see <http://www.gnu.org/licenses/>.
 #include <bh_view.hpp>
 #include <bh_component.hpp>
 #include <bh_instruction.hpp>
+#include <bh_metasweep.hpp>
 #include <bh_main_memory.hpp>
 
 namespace bohrium {
@@ -80,14 +81,14 @@ public:
                              uint64_t codegen_hash,
                              uint64_t source_hash,
                              std::stringstream &ss,
-                             const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) = 0;
+                             const std::vector<bh_metasweep> sweep_info) = 0;
 
     virtual void execute(const SymbolTable &symbols,
                          const std::string &source,
                          uint64_t codegen_hash,
                          const std::vector<uint64_t> &thread_stack,
                          const std::vector<const bh_instruction *> &constants,
-                         const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) = 0;
+                         const std::vector<bh_metasweep> sweep_info) = 0;
 
     void handleExecution(BhIR *bhir, bool opencl_scalar_reduction=false) override {
         using namespace std;
@@ -265,6 +266,28 @@ private:
         stat.time_offload += chrono::steady_clock::now() - toffload;
     }
 
+    void find_sweep_info(const LoopB &kernel, std::vector<bh_metasweep> &out){
+        std::vector<bh_metasweep> sweep_info = {};
+        auto subBlocks = kernel.getLocalSubBlocks();
+        std::cout << "Find sweep info in this: " << std::endl;
+
+        /* auto sweeps = rank0->getSweeps(); */
+        std::cout << "#############################\n";
+        for (auto block: subBlocks) {
+            for (std::shared_ptr<const bh_instruction> _sweep: block->getSweeps()) {
+                const bh_instruction &sweep = *_sweep.get();
+                std::cout << sweep.pprint() << "\n";
+                out.push_back(bh_metasweep(block->rank, sweep));
+            }
+            find_sweep_info(*block, out);
+        }
+        std::cout << "-----------------------------\n";
+        // Print out instructions. We don't need this right now...
+        /* for (auto instr: kernel.getLocalInstr()) { */
+        /*     std::cout << instr.get()->pprint() << "\n"; */
+        /* } */
+    }
+
     void executeKernel(const LoopB &kernel,
                        const SymbolTable &symbols,
                        const std::vector<uint64_t> &thread_stack) {
@@ -280,37 +303,43 @@ private:
             constants.push_back(&(*instr));
         }
 
-
-
         // Determine if there is a vector-reduction kernel. Only handle a single sweep, which is a reduction
-        std::tuple<bh_opcode, bh_view, bh_view> sweep_info = std::make_tuple(BH_NONE, bh_view(), bh_view());
-        auto rank0 = kernel.getLocalSubBlocks().front();
-        auto sweeps = rank0->getSweeps();
-        if (sweeps.size() == 1) { // TODO: Support multiple sweeps in same rank
-            for(std::shared_ptr<const bh_instruction> sweep: sweeps) {
-                auto views = sweep->getViews();
+        std::vector<bh_metasweep> sweep_info = {};
+        /* auto rank0 = kernel.getLocalSubBlocks().front(); */
+        /* auto sweeps = rank0->getSweeps(); */
+        /* if (sweeps.size() == 1) { // TODO: Support multiple sweeps in same rank */
+        /*     for(std::shared_ptr<const bh_instruction> sweep: sweeps) { */
+        /*         auto views = sweep->getViews(); */
 
-                // TODO: Fix this abomination
-                bh_view r;
-                bh_view l;
-                int i = 0;
-                for (const bh_view &view: views) {
-                    if (i==0){
-                        r = view;
-                    }
-                    else{
-                        l = view;
-                    }
-                    i++;
-                }
+        /*         // TODO: Fix this abomination */
+        /*         bh_view r; */
+        /*         bh_view l; */
+        /*         int i = 0; */
+        /*         for (const bh_view &view: views) { */
+        /*             if (i==0){ */
+        /*                 r = view; */
+        /*             } */
+        /*             else{ */
+        /*                 l = view; */
+        /*             } */
+        /*             i++; */
+        /*         } */
 
-                if (bh_opcode_is_accumulate(sweep->opcode) ||
-                     (bh_opcode_is_reduction(sweep->opcode) &&
-                      r.ndim == 1 && r.shape[0] == 1 &&
-                      l.ndim == 1 && l.shape[0] > 1)) {
-                    sweep_info = std::make_tuple(sweep->opcode, l, r);
-                }
-            }
+        /*         if (bh_opcode_is_accumulate(sweep->opcode) || */
+        /*              (bh_opcode_is_reduction(sweep->opcode) && */
+        /*               r.ndim == 1 && r.shape[0] == 1 && */
+        /*               l.ndim == 1 && l.shape[0] > 1)) { */
+        /*             // TODO: Add rank, make vector, sort rank in descending order (opposite push_back). */
+        /*             sweep_info.insert(sweep_info.begin(), bh_metasweep(0, sweep->opcode, l, r, sweep->sweep_axis())); */
+        /*         } */
+        /*     } */
+        /* } */
+
+        /* std::vector<bh_metasweep> sweep_info2; */
+        find_sweep_info(kernel, sweep_info);
+        std::cout << "sweep_info:" << endl;
+        for (const bh_metasweep &metasweep: sweep_info) {
+            cout << metasweep.pprint(true) << "\n";
         }
 
         const auto lookup = codegen_cache.lookup(kernel, symbols);

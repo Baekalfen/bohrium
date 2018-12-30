@@ -29,6 +29,7 @@ If not, see <http://www.gnu.org/licenses/>.
 #include <bh_view.hpp>
 #include <bh_component.hpp>
 #include <bh_instruction.hpp>
+#include <bh_metasweep.hpp>
 #include <boost/filesystem.hpp>
 
 namespace bohrium {
@@ -142,7 +143,7 @@ protected:
     virtual void writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
                                               std::stringstream &ss,
                                               const char *array_type_prefix,
-                                              const bool is_sweep = false);
+                                              const std::vector<bh_metasweep> sweep_info);
 
     /** Writes a kernel, which corresponds to a set of for-loop nest.
      *
@@ -159,7 +160,7 @@ protected:
                             const std::vector<uint64_t> &thread_stack,
                             bool opencl,
                             std::stringstream &out,
-                            bool is_sweep,
+                            const std::vector<bh_metasweep> sweep_info,
                             const size_t parallelize_rank = -1);
 
     /** Write a loop header

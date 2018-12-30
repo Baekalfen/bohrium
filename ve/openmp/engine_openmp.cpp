@@ -331,7 +331,7 @@ void EngineOpenMP::writeKernel(const LoopB &kernel,
 
     // Write the header of the execute function
     ss << "void execute_" << codegen_hash;
-    writeKernelFunctionArguments(symbols, ss, nullptr);
+    writeKernelFunctionArguments(symbols, ss, nullptr, {});
 
     // Write the block that makes up the body of 'execute()'
     ss << "{\n";
@@ -342,7 +342,7 @@ void EngineOpenMP::writeKernel(const LoopB &kernel,
     }
     ss << "\n";
 
-    writeBlock(symbols, nullptr, kernel, {}, false, ss, false, -1);
+    writeBlock(symbols, nullptr, kernel, {}, false, ss, {}, -1);
 
     // Write frees of the kernel temporaries
     ss << "\n";

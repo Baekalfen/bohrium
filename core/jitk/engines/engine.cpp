@@ -20,6 +20,7 @@ If not, see <http://www.gnu.org/licenses/>.
 
 #include <jitk/engines/engine.hpp>
 #include <bh_instruction.hpp>
+#include <bh_metasweep.hpp>
 
 using namespace std;
 
@@ -29,7 +30,7 @@ namespace jitk {
 void Engine::writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
                                           std::stringstream &ss,
                                           const char *array_type_prefix,
-                                          const bool is_sweep) {
+                                          const std::vector<bh_metasweep> sweep_info) {
     // We create the comma separated list of args and saves it in `stmp`
     std::stringstream stmp;
     for (size_t i = 0; i < symbols.getParams().size(); ++i) {
@@ -55,7 +56,7 @@ void Engine::writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
         }
     }
 
-    if (is_sweep){
+    if ((sweep_info.size() == 1) && sweep_info.back().is_scalar()){
         stmp << "__global volatile __DATA_TYPE__ *res, __local volatile __DATA_TYPE__ *a, ";
     }
 
@@ -75,7 +76,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
                         const std::vector<uint64_t> &thread_stack,
                         bool opencl,
                         std::stringstream &out,
-                        bool is_sweep,
+                        std::vector<bh_metasweep> sweep_info,
                         const size_t parallelize_rank) {
 
     if (kernel.isSystemOnly()) {
@@ -165,7 +166,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
         for (const Block &b: kernel._block_list) {
             if (b.isInstr()) { // Finally, let's write the instruction
                 if (b.getInstr() != nullptr and not bh_opcode_is_system(b.getInstr()->opcode)) {
-                    if (is_sweep && bh_opcode_is_sweep(b.getInstr()->opcode) && b.rank() == 1){
+                    if ((sweep_info.size() == 1) && sweep_info.back().is_scalar() && bh_opcode_is_sweep(b.getInstr()->opcode) && b.rank() == 1){
                         util::spaces(out, 4 + b.rank() * 4);
                         out << "element = ";
                         const bh_instruction instr = *b.getInstr();
@@ -196,11 +197,24 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     }
                 }
             } else {
+                // TODO: If the following is a segmented reduction, do something else
+                const bool seg_reduce = (sweep_info.size() == 1) && sweep_info.front().is_segment();
+                const bool inject_seg_reduce = seg_reduce && sweep_info.front().sweep_axis() == b.rank();
+                if (inject_seg_reduce){
+                    util::spaces(out, 4 + b.rank() * 4);
+                    out << "bool im_temp = false; if (false) {seg_reduce: ;im_temp = true;};\n";
+                }
+
                 util::spaces(out, 4 + b.rank() * 4);
                 loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out, parallelize_rank);
-                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_sweep, parallelize_rank);
+                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, sweep_info, parallelize_rank);
                 util::spaces(out, 4 + b.rank() * 4);
                 out << "}\n";
+
+                if (inject_seg_reduce){
+                    util::spaces(out, 4 + b.rank() * 4);
+                    out << "if (im_temp) {goto skip_block;}\n";
+                }
             }
         }
     } else {
@@ -223,7 +237,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
             } else {
                 util::spaces(out, 4 + b.rank() * 4);
                 loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out);
-                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, is_sweep, parallelize_rank);
+                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, sweep_info, parallelize_rank);
                 util::spaces(out, 4 + b.rank() * 4);
                 out << "}\n";
             }

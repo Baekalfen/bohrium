@@ -105,7 +105,7 @@ public:
                  uint64_t codegen_hash,
                  const std::vector<uint64_t> &thread_stack,
                  const std::vector<const bh_instruction*> &constants,
-                 const std::tuple<bh_opcode, bh_view, bh_view> sweep_info);
+                 const std::vector<bh_metasweep> sweep_info);
 
     void writeKernel(const jitk::LoopB &kernel,
                      const jitk::SymbolTable &symbols,
@@ -113,7 +113,7 @@ public:
                      uint64_t codegen_hash,
                      uint64_t source_hash,
                      std::stringstream &ss,
-                     const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) override;
+                     const std::vector<bh_metasweep> sweep_info) override;
 
     // Delete a buffer
     void delBuffer(bh_base* base) override {

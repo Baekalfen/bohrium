@@ -84,7 +84,7 @@ public:
                  uint64_t codegen_hash,
                  const std::vector<uint64_t> &thread_stack,
                  const std::vector<const bh_instruction *> &constants,
-                 const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) override;
+                 const std::vector<bh_metasweep> sweep_info) override;
 
     // Copy 'bases' to the host (ignoring bases that isn't on the device)
     void copyToHost(const std::set<bh_base *> &bases) override;
@@ -107,7 +107,7 @@ public:
                      uint64_t codegen_hash,
                      uint64_t source_hash,
                      std::stringstream &ss,
-                     const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) override;
+                     const std::vector<bh_metasweep> sweep_info) override;
 
     // Writes the OpenCL specific for-loop header
     void loopHeadWriter(const jitk::SymbolTable &symbols,

@@ -245,7 +245,7 @@ void EngineCUDA::writeKernel(const jitk::LoopB &kernel,
                              uint64_t codegen_hash,
                              uint64_t source_hash,
                              std::stringstream &ss,
-                             const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) {
+                             const std::vector<bh_metasweep> sweep_info) {
     // Write the need includes
     ss << "#include <kernel_dependencies/complex_cuda.h>\n";
     ss << "#include <kernel_dependencies/integer_operations.h>\n";
@@ -256,7 +256,7 @@ void EngineCUDA::writeKernel(const jitk::LoopB &kernel,
 
     // Write the header of the execute function
     ss << "extern \"C\" __global__ void execute_" << codegen_hash;
-    writeKernelFunctionArguments(symbols, ss, nullptr);
+    writeKernelFunctionArguments(symbols, ss, nullptr, {});
     ss << " {\n";
 
     // Write the IDs of the threaded blocks
@@ -270,7 +270,7 @@ void EngineCUDA::writeKernel(const jitk::LoopB &kernel,
         }
         ss << "\n";
     }
-    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, false, -1);
+    writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, {}, -1);
     ss << "}\n\n";
 }
 
@@ -279,7 +279,7 @@ void EngineCUDA::execute(const jitk::SymbolTable &symbols,
                          uint64_t codegen_hash,
                          const vector<uint64_t> &thread_stack,
                          const vector<const bh_instruction *> &constants,
-                         const std::tuple<bh_opcode, bh_view, bh_view> sweep_info) {
+                         const std::vector<bh_metasweep> sweep_info) {
     uint64_t hash = util::hash(source);
     std::string source_filename = jitk::hash_filename(compilation_hash, hash, ".cu");
 

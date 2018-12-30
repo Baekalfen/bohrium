@@ -399,7 +399,7 @@ class Ufunc(object):
 
         # Transposing the reductions, to move the axes to the back for optimal GPGPU access pattern
         indices = range(ary.ndim)
-        ary = ary.transpose(filter(lambda x: not x in axis, indices) + axis)
+        ary = ary.transpose(filter(lambda x: not x in axis, indices) + list(reversed(sorted(axis))))
         axis = indices[-len(axis):]
 
         if len(axis) == 1:

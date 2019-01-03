@@ -746,55 +746,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "#include <kernel_dependencies/random123_opencl.h>\n";
     }
 
-    if (sweep_info.size() > 0 && sweep_info.back().is_scalar()) {
-        ss << "#define NEUTRAL ";
-        jitk::sweep_identity(sweep_info.back().opcode, sweep_info.back().left_operand.base->type).pprint(ss, true);
-        ss << "\n";
-
-        ss << "#define OPERATOR(a,b) (";
-        const std::vector<string> ops = std::vector<string> {"a", "b"};
-        /* jitk::write_operation(bh_instruction(sweep_info.back().first, views), ops, ss, true); */
-        switch (sweep_info.back().opcode) {
-            case BH_BITWISE_AND_REDUCE:
-                ss << ops[0] << " & " << ops[1];
-                break;
-            case BH_BITWISE_OR_REDUCE:
-                ss << ops[0] << " | " << ops[1];
-                break;
-            case BH_BITWISE_XOR_REDUCE:
-                ss << ops[0] << " ^ " << ops[1];
-                break;
-            case BH_LOGICAL_OR_REDUCE:
-                ss << ops[0] << " || " << ops[1];
-                break;
-            case BH_LOGICAL_AND_REDUCE:
-                ss << ops[0] << " && " << ops[1];
-                break;
-            case BH_LOGICAL_XOR_REDUCE:
-                ss << ops[0] << " != !" << ops[1];
-                break;
-            case BH_MAXIMUM_REDUCE:
-                ss <<  "max(" << ops[0] << ", " << ops[1] << ")";
-                break;
-            case BH_MINIMUM_REDUCE:
-                ss <<  "min(" << ops[0] << ", " << ops[1] << ")";
-                break;
-            case BH_ADD_ACCUMULATE:
-            case BH_ADD_REDUCE:
-                ss << ops[0] << " + " << ops[1];
-                break;
-            case BH_MULTIPLY_ACCUMULATE:
-            case BH_MULTIPLY_REDUCE:
-                ss << ops[0] << " * " << ops[1];
-                break;
-            default:
-                throw runtime_error("Instruction not supported.");
-        }
-        ss << ")\n";
-        ss << "\n";
-
-        ss << "#define __DATA_TYPE__ " << writeType(sweep_info.back().left_operand.base->type) <<"\n";
-
+    if (sweep_info.size() > 0) {
         // Hardcoding parameters is not compatible with auto-tuner
         if (autotuner) {
             ss << "#define KERNEL_" << thread_stack.size() << "D\n";
@@ -806,14 +758,84 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         else {
             const auto local_range = NDRanges(thread_stack).second;
             ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
-            assert (local_range.dimensions() == 1); // Don't allow multi-dim before we are ready
+            assert ((!sweep_info.back().is_scalar()) || (local_range.dimensions() == 1 && sweep_info.back().is_scalar())); // Don't allow multi-dim before we are ready
 
             for (size_t i = 0; i < local_range.dimensions(); i++){
                 ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n";
             }
         }
 
-        ss << "#include <kernel_dependencies/reduce_opencl.h>\n";
+        ss << "#ifdef cl_nv_pragma_unroll\n";
+        ss << "#define NVIDIA\n";
+        ss << "#define wavefront_size 32\n";
+        ss << "#else\n";
+        ss << "#define AMD\n";
+        ss << "#define wavefront_size 64\n";
+        ss << "#endif\n";
+
+        if (sweep_info.front().is_segment()) {
+            ss << "//Is segment!\n";
+            ss << "inline size_t round_up_power2(size_t number){\n";
+            ss << "    // https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2\n";
+            ss << "    number -= 1;\n";
+            ss << "    number |= number >> 1;\n";
+            ss << "    number |= number >> 2;\n";
+            ss << "    number |= number >> 4;\n";
+            ss << "    number += 1;\n";
+            ss << "    return number;\n";
+            ss << "}\n";
+        }
+
+        if (sweep_info.back().is_scalar()) {
+            ss << "#define NEUTRAL ";
+            jitk::sweep_identity(sweep_info.back().opcode, sweep_info.back().type()).pprint(ss, true);
+            ss << "\n";
+
+            ss << "#define OPERATOR(a,b) (";
+            const std::vector<string> ops = std::vector<string> {"a", "b"};
+            /* jitk::write_operation(bh_instruction(sweep_info.back().first, views), ops, ss, true); */
+            switch (sweep_info.back().opcode) {
+                case BH_BITWISE_AND_REDUCE:
+                    ss << ops[0] << " & " << ops[1];
+                    break;
+                case BH_BITWISE_OR_REDUCE:
+                    ss << ops[0] << " | " << ops[1];
+                    break;
+                case BH_BITWISE_XOR_REDUCE:
+                    ss << ops[0] << " ^ " << ops[1];
+                    break;
+                case BH_LOGICAL_OR_REDUCE:
+                    ss << ops[0] << " || " << ops[1];
+                    break;
+                case BH_LOGICAL_AND_REDUCE:
+                    ss << ops[0] << " && " << ops[1];
+                    break;
+                case BH_LOGICAL_XOR_REDUCE:
+                    ss << ops[0] << " != !" << ops[1];
+                    break;
+                case BH_MAXIMUM_REDUCE:
+                    ss <<  "max(" << ops[0] << ", " << ops[1] << ")";
+                    break;
+                case BH_MINIMUM_REDUCE:
+                    ss <<  "min(" << ops[0] << ", " << ops[1] << ")";
+                    break;
+                case BH_ADD_ACCUMULATE:
+                case BH_ADD_REDUCE:
+                    ss << ops[0] << " + " << ops[1];
+                    break;
+                case BH_MULTIPLY_ACCUMULATE:
+                case BH_MULTIPLY_REDUCE:
+                    ss << ops[0] << " * " << ops[1];
+                    break;
+                default:
+                    throw runtime_error("Instruction not supported.");
+            }
+            ss << ")\n";
+            ss << "\n";
+
+            ss << "#define __DATA_TYPE__ " << writeType(sweep_info.back().type()) <<"\n";
+            ss << "#include <kernel_dependencies/reduce_opencl.h>\n";
+        }
     }
     ss << "\n";
 
@@ -849,12 +871,16 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 }
             }
         } else {
+            // Injecting optimized kernel parameter to IDs
             util::spaces(ss, 4);
             ss << "// Optimizing Access Pattern!\n";
 
+            // TODO: It's ok to have size()>1 as long as only one rank has the seg_reduce and there is an scalar reduction
+            bool inject_seg_reduce =
+                (sweep_info.size() == 1) &&
+                sweep_info.front().is_segment() &&
+                (sweep_info.front().sweep_axis() == thread_stack.size()-1);
 
-            // Injecting optimized kernel parameter to IDs
-            const bool seg_reduce = (sweep_info.size() == 1) && sweep_info.front().is_segment(); // TODO: It's ok to have size()>1 as long as only one rank has the seg_reduce and there is an scalar reduction
             for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
 
                 util::spaces(ss, 4);
@@ -869,7 +895,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 }
 
                 string goto_label;
-                if (seg_reduce){
+                if (inject_seg_reduce){
                     goto_label = "seg_reduce";
                 }
                 else {
@@ -886,7 +912,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     // Write inner blocks
     writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, sweep_info, axis_lowest_stride);
 
-    if (not thread_stack.empty() && (sweep_info.size() == 1) && sweep_info.back().is_scalar()){
+    if (not thread_stack.empty() && (sweep_info.size() > 0) && sweep_info.back().is_scalar()){
         util::spaces(ss, 4);
         // Inject neutral element, when there is no data in global memory to read
         ss << "if (false) {\n";

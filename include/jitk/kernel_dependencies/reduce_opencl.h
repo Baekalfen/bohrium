@@ -19,13 +19,13 @@ If not, see <http://www.gnu.org/licenses/>.
 */
 
 #pragma once
-#ifdef cl_nv_pragma_unroll
-#define NVIDIA
-#define wavefront_size 32
-#else
-#define AMD
-#define wavefront_size 64
-#endif
+/* #ifdef cl_nv_pragma_unroll */
+/* #define NVIDIA */
+/* #define wavefront_size 32 */
+/* #else */
+/* #define AMD */
+/* #define wavefront_size 64 */
+/* #endif */
 
 #define OPERATOR4(a,b,c,d) (OPERATOR(a, OPERATOR(b, OPERATOR(c, d))))
 

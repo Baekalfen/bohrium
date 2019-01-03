@@ -22,6 +22,8 @@ If not, see <http://www.gnu.org/licenses/>.
 #include <bh_instruction.hpp>
 #include <bh_metasweep.hpp>
 
+#define INDENT util::spaces(out, 4 + b.rank() * 4 + indent_level*4)
+
 using namespace std;
 
 namespace bohrium {
@@ -57,7 +59,8 @@ void Engine::writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
     }
 
     if ((sweep_info.size() == 1) && sweep_info.back().is_scalar()){
-        stmp << "__global volatile __DATA_TYPE__ *res, __local volatile __DATA_TYPE__ *a, ";
+        const string dtype = writeType(sweep_info.back().type());
+        stmp << "__global volatile " << dtype << " *res, __local volatile " << dtype << " *a, ";
     }
 
     // And then we write `stmp` into `ss` excluding the last comma
@@ -166,7 +169,9 @@ void Engine::writeBlock(const SymbolTable &symbols,
         for (const Block &b: kernel._block_list) {
             if (b.isInstr()) { // Finally, let's write the instruction
                 if (b.getInstr() != nullptr and not bh_opcode_is_system(b.getInstr()->opcode)) {
-                    if ((sweep_info.size() == 1) && sweep_info.back().is_scalar() && bh_opcode_is_sweep(b.getInstr()->opcode) && b.rank() == 1){
+
+                    // If we have a vector-to-scalar reduction
+                    if (bh_opcode_is_sweep(b.getInstr()->opcode) && b.rank() == 1 && (sweep_info.size() == 1) && sweep_info.back().is_scalar()){
                         util::spaces(out, 4 + b.rank() * 4);
                         out << "element = ";
                         const bh_instruction instr = *b.getInstr();
@@ -175,7 +180,6 @@ void Engine::writeBlock(const SymbolTable &symbols,
                         const bh_view &view = instr.operand[1];
 
                         // TODO: The following is borrowed from void write_other_instr(const Scope &scope, const bh_instruction &instr, stringstream &out, bool opencl) and should be merged
-
                         if (view.isConstant()) {
                             const int64_t constID = scope.symbols.constID(instr);
                             if (constID >= 0) {
@@ -190,30 +194,106 @@ void Engine::writeBlock(const SymbolTable &symbols,
                             }
                         }
                         out << ";" << endl;
-                    }
-                    else{
+                    } else{
                         util::spaces(out, 4 + b.rank() * 4);
                         write_instr(scope, *b.getInstr(), out, true);
                     }
                 }
             } else {
-                // TODO: If the following is a segmented reduction, do something else
-                const bool seg_reduce = (sweep_info.size() == 1) && sweep_info.front().is_segment();
-                const bool inject_seg_reduce = seg_reduce && sweep_info.front().sweep_axis() == b.rank();
-                if (inject_seg_reduce){
-                    util::spaces(out, 4 + b.rank() * 4);
-                    out << "bool im_temp = false; if (false) {seg_reduce: ;im_temp = true;};\n";
+                auto next_rank = b.getLoop();
+
+                // Check if there exist a segmented reduction, and if we are in the right rank.
+                bool inject_seg_reduce =
+                    (sweep_info.size() == 1) &&
+                    (sweep_info.front().sweep_axis() == b.rank()) &&
+                    sweep_info.front().is_segment() &&
+                    next_rank.isInnermost();
+
+
+                if (inject_seg_reduce){ // Check that the segmented reduction is in the very next rank and alone.
+                    for (const Block &b: next_rank._block_list) {
+                        if (!b.isInstr() || !(bh_metasweep(b.rank(), *b.getInstr()).is_segment()) ) {//!bh_opcode_is_reduction(b.getInstr()->opcode) || !(b.getInstr()->stride)){
+                            inject_seg_reduce = false;
+                            break;
+                        }
+                    }
                 }
 
-                util::spaces(out, 4 + b.rank() * 4);
-                loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out, parallelize_rank);
-                writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, sweep_info, parallelize_rank);
-                util::spaces(out, 4 + b.rank() * 4);
-                out << "}\n";
-
+                // NOTE: If we create a config for it, segmented reductions can be disabled in the following if-statement:
                 if (inject_seg_reduce){
+                    const bh_metasweep sweep = sweep_info.front();
+
+                    size_t indent_level = 0;
+                    INDENT; out << "/*" << next_rank << "*/" << endl;
+
+                    INDENT; out << "{ // Segmented reduction injected.\n";
+                    indent_level = 1;
+
+                    INDENT; out << "bool im_temp = false; if (false) {seg_reduce: ;im_temp = true;};\n";
+                    INDENT; out << "__local volatile " << writeType(sweep.type()) << " write_back[5 /* TODO: Injected g1 length*/];\n";
+                    INDENT; out << "__local volatile " << writeType(sweep.type()) << " a[DIM1];\n";
+                    /* INDENT; out << "" << writeType(sweep.type()) << " *write_back = s0;\n"; */
+
+                    INDENT; out << "size_t lid = get_local_id(0);\n";
+                    /* INDENT; out << "// Rewrite thread ID's\n"; */
+                    /* INDENT; out << "/1* const ulong _i2 = i1; // TODO: Verify *1/\n"; */
+                    /* INDENT; out << "/1* const ulong _i1 = lid % segment_size; // TODO: Verify *1/\n"; */
+
+                    INDENT; out << "size_t segment_size; // Rounded up to power of 2\n";
+                    INDENT; out << "size_t size = 4;/* TODO: Injected i2 length*/\n";
+                    INDENT; out << "if (size < wavefront_size) {\n";
+                    INDENT; out << "    segment_size = round_up_power2(size);\n";
+                    INDENT; out << "}\n";
+                    INDENT; out << "else{\n";
+                    INDENT; out << "    segment_size = size;\n";
+                    INDENT; out << "}\n";
+
+                    INDENT; out << "// For each segment\n";
+                    INDENT; out << "size_t sid = lid % segment_size; // Internal segment thread ID\n";
+                    INDENT; out << "const size_t segments_per_workgroup = DIM1 / segment_size; // With 128 work-group size, this is between 4 and 64. The following loop will run between 32 to 2 times respectively.\n";
+
+                    INDENT; out << "for (size_t segment_id = lid/segment_size; segment_id < 5 /* TODO: Injected g1 length*/; segment_id += segments_per_workgroup){ // segment_id ~~ i2\n";
+                    INDENT; out << "    // Read in data\n";
+                    INDENT; out << "    " << writeType(sweep.type()) << " acc = ";
+                    jitk::sweep_identity(sweep.opcode, sweep.type()).pprint(out, true);
+                    out << ";\n";
+                    INDENT; out << "    // Offset for each wavefront at a contigous, oversized segment. Has to work once, multiple times, and smaller than wavefront sizes.\n";
+                    INDENT; out << "    const size_t increment_size = (segment_size < wavefront_size ? segment_size : wavefront_size);\n";
+                    INDENT; out << "    for (int j=sid; j < size; j += increment_size) {\n";
+                    INDENT; out << "        // +i0*20 +i1*4\n";
+                    INDENT; out << "        // TODO: Inject array name and strides\n";
+                    INDENT; out << "        acc += a1[ +i0*20 +segment_id*4 + j];\n";
+                    INDENT; out << "    }\n";
+
+                    /* INDENT; out << "    // Reduce segment\n"; */
+                    /* INDENT; out << "    bool running = ((sid%2) == 0);\n"; */
+                    /* INDENT; out << "    for (size_t i=1; i<=segment_size/2; i<<=1){\n"; */
+                    /* INDENT; out << "        if (running){\n"; */
+                    /* INDENT; out << "            running = (sid%(i<<2) == 0);\n"; */
+                    /* /1* INDENT; out << "            acc = OPERATOR(acc, a[lid+i]);\n"; *1/ */
+                    /* INDENT; out << "            acc = acc + a[lid+i];\n"; */
+                    /* INDENT; out << "            a[lid] = acc;\n"; */
+                    /* INDENT; out << "        }\n"; */
+                    /* INDENT; out << "    }\n"; */
+
+                    INDENT; out << "    // Writeback to result array. Saves barriers at expense of some local memory, compared calling barrier now, and fetching across wavefronts.\n";
+                    INDENT; out << "    if (sid == 0){\n";
+                    INDENT; out << "        write_back[segment_id] = acc;\n";
+                    /* INDENT; out << "        write_back[segment_id] = segment_id;\n"; */
+                    INDENT; out << "    }\n";
+                    INDENT; out << "}\n";
+                    INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n";
+                    INDENT; out << "if (im_temp) {goto skip_block;}\n";
+                    INDENT; out << "s0 = write_back[lid]; // Inject results back into outer state\n";
+                    indent_level = 0;
+                    INDENT; out << "}\n";
+                }
+                else{
                     util::spaces(out, 4 + b.rank() * 4);
-                    out << "if (im_temp) {goto skip_block;}\n";
+                    loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out, parallelize_rank);
+                    writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, sweep_info, parallelize_rank);
+                    util::spaces(out, 4 + b.rank() * 4);
+                    out << "}\n";
                 }
             }
         }

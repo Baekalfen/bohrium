@@ -280,6 +280,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "    }\n";
 
                     INDENT; out << "    // Reduce segment\n";
+                    INDENT; out << "    a[lid] = acc;\n";
                     INDENT; out << "    bool running = ((sid%2) == 0);\n";
                     INDENT; out << "    for (size_t i=1; i<=segment_size/2; i<<=1){\n";
                     INDENT; out << "        if (running){\n";
@@ -292,7 +293,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
 
                     // Writeback to result array. Saves barriers at expense of some local memory, compared calling barrier now, and fetching across wavefronts.
                     INDENT; out << "    if (sid == 0){\n";
-                    /* INDENT; out << "        write_back[segment_id] = acc;\n"; */
+                    INDENT; out << "        write_back[segment_id] = acc;\n";
                     /* INDENT; out << "        write_back[segment_id] = segment_id;\n"; */
                     /* INDENT; out << "        write_back[segment_id] = segment_size;\n"; */
                     INDENT; out << "    }\n";

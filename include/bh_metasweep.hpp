@@ -82,6 +82,48 @@ struct bh_metasweep {
         return axis;
     }
 
+
+    void write_op(stringstream &ss, string a, string b) const{
+        const std::vector<string> ops = std::vector<string> {a,b};
+        /* jitk::write_operation(bh_instruction(sweep_info.back().first, views), ops, ss, true); */
+        switch (opcode) {
+            case BH_BITWISE_AND_REDUCE:
+                ss << ops[0] << " & " << ops[1];
+                break;
+            case BH_BITWISE_OR_REDUCE:
+                ss << ops[0] << " | " << ops[1];
+                break;
+            case BH_BITWISE_XOR_REDUCE:
+                ss << ops[0] << " ^ " << ops[1];
+                break;
+            case BH_LOGICAL_OR_REDUCE:
+                ss << ops[0] << " || " << ops[1];
+                break;
+            case BH_LOGICAL_AND_REDUCE:
+                ss << ops[0] << " && " << ops[1];
+                break;
+            case BH_LOGICAL_XOR_REDUCE:
+                ss << ops[0] << " != !" << ops[1];
+                break;
+            case BH_MAXIMUM_REDUCE:
+                ss <<  "max(" << ops[0] << ", " << ops[1] << ")";
+                break;
+            case BH_MINIMUM_REDUCE:
+                ss <<  "min(" << ops[0] << ", " << ops[1] << ")";
+                break;
+            case BH_ADD_ACCUMULATE:
+            case BH_ADD_REDUCE:
+                ss << ops[0] << " + " << ops[1];
+                break;
+            case BH_MULTIPLY_ACCUMULATE:
+            case BH_MULTIPLY_REDUCE:
+                ss << ops[0] << " * " << ops[1];
+                break;
+            default:
+                throw runtime_error("Instruction not supported.");
+        }
+    }
+
     string pprint(bool python_notation) const {
         stringstream ss;
         if (opcode > BH_MAX_OPCODE_ID)//It is an extension method

@@ -223,58 +223,63 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     const bh_metasweep sweep = sweep_info.front();
 
                     size_t indent_level = 0;
-                    INDENT; out << "/*" << next_rank << "*/" << endl;
-
                     INDENT; out << "{ // Segmented reduction injected.\n";
                     indent_level = 1;
 
                     INDENT; out << "bool im_temp = false; if (false) {seg_reduce: ;im_temp = true;};\n";
-                    INDENT; out << "__local volatile " << writeType(sweep.type()) << " write_back[5 /* TODO: Injected g1 length*/]; // Max length is max segments pr. workgroup (not alot).\n";
+                    // Max length is max segments pr. workgroup (not alot).
+                    INDENT; out << "__local volatile " << writeType(sweep.type()) << " write_back[" << sweep.left_operand.shape.end()[-2] << "];\n";
                     INDENT; out << "__local volatile " << writeType(sweep.type()) << " a[DIM1];\n";
-                    /* INDENT; out << "" << writeType(sweep.type()) << " *write_back = s0;\n"; */
 
                     INDENT; out << "size_t lid = get_local_id(0);\n";
-                    /* INDENT; out << "// Rewrite thread ID's\n"; */
-                    /* INDENT; out << "/1* const ulong _i2 = i1; // TODO: Verify *1/\n"; */
-                    /* INDENT; out << "/1* const ulong _i1 = lid % segment_size; // TODO: Verify *1/\n"; */
+                    INDENT; out << "size_t segment_size; // Rounded up to power of 2\n";
 
-                    INDENT; out << "size_t segment_size = 4; // Rounded up to power of 2\n";
-                    INDENT; out << "size_t size = 4;/* TODO: Injected i2 length*/\n";
-                    /* INDENT; out << "size_t segment_size; // Rounded up to power of 2\n"; */
-                    /* INDENT; out << "size_t size = 4;/1* TODO: Injected i2 length*1/\n"; */
-                    /* INDENT; out << "if (size < wavefront_size) {\n"; */
-                    /* INDENT; out << "    segment_size = round_up_power2(size);\n"; */
-                    /* INDENT; out << "}\n"; */
-                    /* INDENT; out << "else{\n"; */
-                    /* INDENT; out << "    segment_size = size;\n"; */
-                    /* INDENT; out << "}\n"; */
+                    out << "//";
+                    for (unsigned int i=0; i < sweep.left_operand.ndim; ++i) {
+                        out << sweep.left_operand.shape[i] << " ";
+                    }
+                    out << "\n";
+
+                    INDENT; out << "size_t size = " << sweep.left_operand.shape.back() << ";\n";
+                    INDENT; out << "if (size < wavefront_size) {\n";
+                    INDENT; out << "    segment_size = round_up_power2(size);\n";
+                    INDENT; out << "}\n";
+                    INDENT; out << "else{\n";
+                    INDENT; out << "    segment_size = size;\n";
+                    INDENT; out << "}\n";
 
                     INDENT; out << "// For each segment\n";
                     INDENT; out << "size_t sid = lid % segment_size; // Internal segment thread ID\n";
-                    /* INDENT; out << "const size_t segments_per_workgroup = DIM1 / segment_size; // With 128 work-group size, this is between 4 and 64. The following loop will run between 32 to 2 times respectively.\n"; */
-                    INDENT; out << "const size_t segments_per_workgroup = 32;\n";
+
+                    // With 128 work-group size, this is between 4 and 64. The following loop will run between 32 to 2 times respectively.
+                    INDENT; out << "const size_t segments_per_workgroup = DIM1 / segment_size;\n";
 
                     INDENT; out << writeType(sweep.type()) << " acc = ";
                     jitk::sweep_identity(sweep.opcode, sweep.type()).pprint(out, true);
                     out << ";\n";
 
-                    INDENT; out << "for (size_t segment_id = (lid/segment_size); segment_id < 5 /* TODO: Injected g1 length*/; segment_id += segments_per_workgroup){ // segment_id ~~ i2\n";
+                    INDENT; out << "for (size_t segment_id = (lid/segment_size); segment_id < " << sweep.left_operand.shape.end()[-2] << "; segment_id += segments_per_workgroup){\n";
                     INDENT; out << "    // Read in data\n";
                     // Offset for each wavefront at a contigous, oversized segment. Has to work once, multiple times, and smaller than wavefront sizes.\n";
                     INDENT; out << "    const size_t increment_size = (segment_size < wavefront_size ? segment_size : wavefront_size);\n";
                     INDENT; out << "    for (int j=sid; j < size; j += increment_size) {\n";
-                    /* INDENT; out << "    {\n"; */
                     INDENT; out << "        // IMPORTANT! ALL INDICES HAS TO BE REINSTANTIATED BECAUSE OF GOTO!\n";
-                    INDENT; out << "        const ulong i0 = g0;\n";
-                    INDENT; out << "        const ulong i1 = segment_id;\n";
-                    INDENT; out << "        const ulong i2 = j; //sid\n";
-                    INDENT; out << "        acc += ";
+
+                    size_t dims = sweep.left_operand.ndim;
+                    for (unsigned int i=0; i < dims-2; ++i) {
+                        INDENT; out << "        const ulong i" << i << " = g" << i << ";\n";
+                    }
+                    INDENT; out << "        const ulong i" << dims-2 << " = segment_id;\n";
+                    INDENT; out << "        const ulong i" << dims-1 << " = j;\n";
+                    INDENT; out << "        acc = ";
                     {
-                        const bh_view &view = sweep_info.front().left_operand;
-                        scope.getName(view, out);
+                        stringstream ss;
+                        const bh_view &view = sweep.left_operand;
+                        scope.getName(view, ss);
                         if (scope.isArray(view)) {
-                            write_array_subscription(scope, view, out);
+                            write_array_subscription(scope, view, ss);
                         }
+                        sweep.write_op(out, "acc", ss.str());
                     }
                     out << ";\n";
                     INDENT; out << "    }\n";
@@ -285,8 +290,9 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "    for (size_t i=1; i<=segment_size/2; i<<=1){\n";
                     INDENT; out << "        if (running){\n";
                     INDENT; out << "            running = (sid%(i<<2) == 0);\n";
-                    /* INDENT; out << "            acc = OPERATOR(acc, a[lid+i]);\n"; */
-                    INDENT; out << "            acc = acc + a[lid+i];\n";
+                    INDENT; out << "            acc = ";
+                    sweep.write_op(out, "acc", "a[lid+i]");
+                    out << ";\n";
                     INDENT; out << "            a[lid] = acc;\n";
                     INDENT; out << "        }\n";
                     INDENT; out << "    }\n";
@@ -294,23 +300,22 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     // Writeback to result array. Saves barriers at expense of some local memory, compared calling barrier now, and fetching across wavefronts.
                     INDENT; out << "    if (sid == 0){\n";
                     INDENT; out << "        write_back[segment_id] = acc;\n";
-                    /* INDENT; out << "        write_back[segment_id] = segment_id;\n"; */
-                    /* INDENT; out << "        write_back[segment_id] = segment_size;\n"; */
                     INDENT; out << "    }\n";
                     INDENT; out << "}\n";
                     INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n";
                     INDENT; out << "if (im_temp) {goto skip_block;}\n";
 
-                    out << "// ";
+                    // Handling write-back to Bohriums scalar replacement
+                    INDENT;
                     {
-                        const bh_view &view = sweep_info.front().right_operand;
+                        const bh_view &view = sweep.right_operand;
                         scope.getName(view, out);
                         if (scope.isArray(view)) {
                             write_array_subscription(scope, view, out);
                         }
                     }
-                    out << ";" << endl;
-                    INDENT; out << "s0 = write_back[lid]; // Inject results back into outer state\n";
+                    out << " = write_back[lid];\n";
+
                     indent_level = 0;
                     INDENT; out << "}\n";
                 }

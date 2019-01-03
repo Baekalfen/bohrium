@@ -879,19 +879,37 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             bool inject_seg_reduce =
                 (sweep_info.size() == 1) &&
                 sweep_info.front().is_segment() &&
-                (sweep_info.front().sweep_axis() == thread_stack.size()-1);
+                (sweep_info.front().sweep_axis() == thread_stack.size());
 
+/*             if ((sweep_info.size() == 1) && */
+/*                 sweep_info.front().is_segment()){ */
+/*                 cout << "HERHEHREHREL: " << sweep_info.front().sweep_axis() << " " << thread_stack.size() << endl ; */
+/*             } */
+
+
+            // WARN: These has to be separated because of the goto!!!
             for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
-
                 util::spaces(ss, 4);
                 if (is_scalar_reduction){
                     // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
-                    ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride << " = get_global_id(0); "
-                        << "if (g" << axis_lowest_stride << " >= " << thread_stack[axis_lowest_stride] << ") { ";
+                    ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride << " = get_global_id(0);\n";
                 }
                 else{
-                    ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride-i << " = get_global_id(" << i << "); "
-                        << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { ";
+                    ss << "const " << writeType(bh_type::UINT32) << " g" << axis_lowest_stride-i << " = get_global_id(" << i << ");\n";
+                }
+            }
+
+            util::spaces(ss, 4);
+            ss << "// WARN: These has to be separated from the lines above because of the goto!!!\n";
+            // WARN: These has to be separated from the lines above because of the goto!!!
+            for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
+                util::spaces(ss, 4);
+                if (is_scalar_reduction){
+                    // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
+                    ss << "if (g" << axis_lowest_stride << " >= " << thread_stack[axis_lowest_stride] << ") { ";
+                }
+                else{
+                    ss << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { ";
                 }
 
                 string goto_label;

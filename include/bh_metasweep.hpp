@@ -26,36 +26,25 @@ If not, see <http://www.gnu.org/licenses/>.
 
 using namespace std;
 
+
+// TODO: Could this simply be replaced by InstrB, while moving helper functions to bh_instruction?
+
 struct bh_metasweep {
     bh_opcode opcode;
     size_t rank;
     bh_view left_operand;
     bh_view right_operand;
     int axis;
+    bool alone;
 
-    bh_metasweep(size_t rank, const bh_opcode& opcode, bh_view& left_operand, bh_view& right_operand, int axis) :
-        opcode(opcode), rank(rank), left_operand(left_operand), right_operand(right_operand), axis(axis) {}
-
-    bh_metasweep(size_t rank, const bh_instruction &sweep) : rank(rank) {
-        auto views = sweep.getViews();
-        // TODO: Fix this abomination
-        bh_view r;
-        bh_view l;
-        int i = 0;
-        for (const bh_view &view: views) {
-            if (i==0){
-                r = view;
-            }
-            else{
-                l = view;
-            }
-            i++;
-        }
-
-        left_operand = l;
-        right_operand = r;
+    bh_metasweep(size_t rank, bool alone, const bh_instruction &sweep) : rank(rank) {
         opcode = sweep.opcode;
+        assert (bh_opcode_is_sweep(opcode));
         axis = sweep.sweep_axis();
+        auto views = sweep.getViews();
+        left_operand = views.back();
+        right_operand = views.front();
+        this->alone = alone;
     }
 
     bool is_segment() const {

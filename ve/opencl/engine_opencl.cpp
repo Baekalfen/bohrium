@@ -275,6 +275,11 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
                              cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
         }
         default:
+            cout << "Erronous thread_stack (hash): ";
+            for (int i=0; i<thread_stack.size(); i++){
+                cout << thread_stack[i] << ", ";
+            }
+            cout << endl;
             throw runtime_error("NDRanges: maximum of three dimensions!");
     }
 }
@@ -282,13 +287,6 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
 
 pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &thread_stack) const {
     const auto &b = thread_stack;
-
-/*     cout << thread_stack.size() << " " << opt_access_pattern << endl; */
-/*     for (int i=0; i<thread_stack.size(); i++){ */
-/*         cout << thread_stack[i] <<  ", "; */
-/*     } */
-/*     cout << endl; */
-
 
     if (opt_access_pattern == 0){
         switch (b.size()) {
@@ -310,6 +308,11 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
                                  cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
             }
             default:
+                cout << "Erronous thread_stack: ";
+                for (int i=0; i<thread_stack.size(); i++){
+                    cout << thread_stack[i] << ", ";
+                }
+                cout << endl;
                 throw runtime_error("NDRanges: maximum of three dimensions!");
         }
     }
@@ -333,6 +336,15 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
                                  cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
             }
             default:
+                if (b.size() > 3){
+                    return NDRanges({work_group_size_1dx,1,1});
+                }
+
+                cout << "Erronous thread_stack (opt): ";
+                for (int i=0; i<thread_stack.size(); i++){
+                    cout << thread_stack[i] << ", ";
+                }
+                cout << endl;
                 throw runtime_error("NDRanges: maximum of three dimensions!");
         }
     }
@@ -704,7 +716,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     }
     else{
         axis_lowest_stride = thread_stack.size()-1;
-        cout << "thread_stack size: " << thread_stack.size() << " " << axis_lowest_stride << endl;
+        /* cout << "thread_stack size: " << thread_stack.size() << " " << axis_lowest_stride << endl; */
     }
 
     /* size_t lowest_stride = thread_stack[axis_lowest_stride]; */
@@ -756,6 +768,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             }
         }
         else {
+            cout << "HREHREHER: " << thread_stack.size() << endl;
             const auto local_range = NDRanges(thread_stack).second;
             ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
             assert ((!sweep_info.back().is_scalar()) || (local_range.dimensions() == 1 && sweep_info.back().is_scalar())); // Don't allow multi-dim before we are ready
@@ -773,7 +786,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "#define wavefront_size 64\n";
         ss << "#endif\n";
 
-        if (sweep_info.front().is_segment()) {
+        if (sweep_info.front().is_segment() && sweep_info.front().alone) {
             ss << "//Is segment!\n";
             ss << "inline size_t round_up_power2(size_t number){\n";
             ss << "    // https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2\n";
@@ -875,18 +888,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             util::spaces(ss, 4);
             ss << "// Optimizing Access Pattern!\n";
 
-            // TODO: It's ok to have size()>1 as long as only one rank has the seg_reduce and there is an scalar reduction
-            bool inject_seg_reduce =
-                (sweep_info.size() == 1) &&
-                sweep_info.front().is_segment() &&
-                (sweep_info.front().sweep_axis() == thread_stack.size());
-
-/*             if ((sweep_info.size() == 1) && */
-/*                 sweep_info.front().is_segment()){ */
-/*                 cout << "HERHEHREHREL: " << sweep_info.front().sweep_axis() << " " << thread_stack.size() << endl ; */
-/*             } */
-
-
             // WARN: These has to be separated because of the goto!!!
             for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
                 util::spaces(ss, 4);
@@ -911,6 +912,13 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 else{
                     ss << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { ";
                 }
+
+                // TODO: It's ok to have size()>1 as long as only one rank has the seg_reduce and there is an scalar reduction
+                bool inject_seg_reduce =
+                    (sweep_info.size() == 1) &&
+                    sweep_info.front().alone &&
+                    sweep_info.front().is_segment() &&
+                    (sweep_info.front().sweep_axis() == thread_stack.size());
 
                 string goto_label;
                 if (inject_seg_reduce){

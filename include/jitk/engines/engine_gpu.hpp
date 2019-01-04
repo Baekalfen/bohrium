@@ -271,21 +271,26 @@ private:
         auto subBlocks = kernel.getLocalSubBlocks();
         std::cout << "Find sweep info in this: " << std::endl;
 
+        bool alone = true;
+        for (auto instr: kernel.getLocalInstr()) {
+            /* std::cout << instr.get()->pprint() << "\n"; */
+            if (!bh_opcode_is_reduction(instr->opcode)){
+                alone = false;
+                break;
+            }
+        }
+
         /* auto sweeps = rank0->getSweeps(); */
         std::cout << "#############################\n";
         for (auto block: subBlocks) {
             for (std::shared_ptr<const bh_instruction> _sweep: block->getSweeps()) {
                 const bh_instruction &sweep = *_sweep.get();
                 std::cout << sweep.pprint() << "\n";
-                out.push_back(bh_metasweep(block->rank, sweep));
+                out.push_back(bh_metasweep(block->rank, alone, sweep));
             }
             find_sweep_info(*block, out);
         }
         std::cout << "-----------------------------\n";
-        // Print out instructions. We don't need this right now...
-        /* for (auto instr: kernel.getLocalInstr()) { */
-        /*     std::cout << instr.get()->pprint() << "\n"; */
-        /* } */
     }
 
     void executeKernel(const LoopB &kernel,
@@ -303,39 +308,8 @@ private:
             constants.push_back(&(*instr));
         }
 
-        // Determine if there is a vector-reduction kernel. Only handle a single sweep, which is a reduction
+        // Determine if there is a vector-reduction kernel.
         std::vector<bh_metasweep> sweep_info = {};
-        /* auto rank0 = kernel.getLocalSubBlocks().front(); */
-        /* auto sweeps = rank0->getSweeps(); */
-        /* if (sweeps.size() == 1) { // TODO: Support multiple sweeps in same rank */
-        /*     for(std::shared_ptr<const bh_instruction> sweep: sweeps) { */
-        /*         auto views = sweep->getViews(); */
-
-        /*         // TODO: Fix this abomination */
-        /*         bh_view r; */
-        /*         bh_view l; */
-        /*         int i = 0; */
-        /*         for (const bh_view &view: views) { */
-        /*             if (i==0){ */
-        /*                 r = view; */
-        /*             } */
-        /*             else{ */
-        /*                 l = view; */
-        /*             } */
-        /*             i++; */
-        /*         } */
-
-        /*         if (bh_opcode_is_accumulate(sweep->opcode) || */
-        /*              (bh_opcode_is_reduction(sweep->opcode) && */
-        /*               r.ndim == 1 && r.shape[0] == 1 && */
-        /*               l.ndim == 1 && l.shape[0] > 1)) { */
-        /*             // TODO: Add rank, make vector, sort rank in descending order (opposite push_back). */
-        /*             sweep_info.insert(sweep_info.begin(), bh_metasweep(0, sweep->opcode, l, r, sweep->sweep_axis())); */
-        /*         } */
-        /*     } */
-        /* } */
-
-        /* std::vector<bh_metasweep> sweep_info2; */
         find_sweep_info(kernel, sweep_info);
         std::cout << "sweep_info:" << endl;
         for (const bh_metasweep &metasweep: sweep_info) {

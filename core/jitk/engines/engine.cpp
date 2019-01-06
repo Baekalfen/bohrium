@@ -216,7 +216,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     const bh_metasweep sweep = sweep_info.front();
 
                     // TODO: Filter out reductions in this rank, and keep them in a different vector. Inject them at the right places. Inject the rest into the call to writeBlock
-                    size_t parallel_rank = 0;
+                    size_t parallel_rank = thread_stack.size()-1;
 
                     size_t indent_level = 0;
                     INDENT; out << "{ // Segmented reduction injected.\n";

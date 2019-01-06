@@ -940,7 +940,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                     ss << writeType(bh_type::UINT64) << " " << itername << " = 0;\n";
                 }
                 // Reduction ranks
-                for (unsigned int i=thread_stack.size(); i < sweep.left_operand.ndim - thread_stack.size(); ++i) {
+                for (unsigned int i=thread_stack.size(); i < sweep.left_operand.ndim-1; ++i) {
                     /* ss << "// for ... i" << i << " = g" << i << ";\n"; */
                     util::spaces(ss, 4);
                     std::string itername; { std::stringstream t; t << "i" << i; itername = t.str(); }
@@ -978,7 +978,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 }
                 // Reduction ranks
                 /* ss << "// " << sweep.left_operand.ndim << " " << gpgpu_ranks << " " << thread_stack.size() << endl; */
-                for (unsigned int i=thread_stack.size(); i < sweep.left_operand.ndim - thread_stack.size(); ++i) {
+                for (unsigned int i=thread_stack.size(); i < sweep.left_operand.ndim - 1; ++i) {
                     /* ss << "// for ... i" << i << " = g" << i << ";\n"; */
                     util::spaces(ss, 4*(i+1));
                     std::string itername; { std::stringstream t; t << "i" << i; itername = t.str(); }
@@ -991,7 +991,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 util::spaces(ss, 4*(sweep.left_operand.ndim - thread_stack.size() + 1));
                 ss << "seg_reduce_return: ;\n";
 
-                for (unsigned int i=sweep.left_operand.ndim - thread_stack.size(); i > thread_stack.size(); --i) {
+                for (unsigned int i=sweep.left_operand.ndim - 1; i > thread_stack.size(); --i) {
                     util::spaces(ss, 4*i);
                     ss << "}\n";
                 }

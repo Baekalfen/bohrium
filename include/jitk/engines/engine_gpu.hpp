@@ -268,25 +268,32 @@ private:
 
     void find_sweep_info(const LoopB &kernel, std::vector<bh_metasweep> &out){
         std::vector<bh_metasweep> sweep_info = {};
-        auto subBlocks = kernel.getLocalSubBlocks();
+        vector<const LoopB *> subBlocks = kernel.getLocalSubBlocks();
         std::cout << "Find sweep info in this: " << std::endl;
-
-        bool alone = true;
-        for (auto instr: kernel.getLocalInstr()) {
-            /* std::cout << instr.get()->pprint() << "\n"; */
-            if (!bh_opcode_is_reduction(instr->opcode)){
-                alone = false;
-                break;
-            }
-        }
 
         /* auto sweeps = rank0->getSweeps(); */
         std::cout << "#############################\n";
-        for (auto block: subBlocks) {
+        size_t goto_counter = 0;
+        for (const LoopB *block: subBlocks) {
+            // The sweeps are alone, if there are just as many instructions, as sweeps.
+            bool alone = true;//block->getLocalInstr().size() == block->getSweeps().size();
+
+            // Possibly use the following to whitelist some instructions.
+            /* if (!alone) { */
+            /*     for (InstrPtr instr: block->getLocalInstr()) { */
+            /*         std::cout << instr.get()->pprint() << "\n"; */
+            /*         if (!bh_opcode_is_reduction(instr->opcode)){ */
+            /*             alone = false; */
+            /*             cout << "Not alone!"<< endl; */
+            /*             break; */
+            /*         } */
+            /*     } */
+            /* } */
+
             for (std::shared_ptr<const bh_instruction> _sweep: block->getSweeps()) {
                 const bh_instruction &sweep = *_sweep.get();
                 std::cout << sweep.pprint() << "\n";
-                out.push_back(bh_metasweep(block->rank, alone, sweep));
+                out.push_back(bh_metasweep(block->rank, alone, goto_counter++, sweep));
             }
             find_sweep_info(*block, out);
         }

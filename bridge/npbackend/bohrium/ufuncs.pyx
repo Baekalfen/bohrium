@@ -399,7 +399,8 @@ class Ufunc(object):
 
         # Transposing the reductions, to move the axes to the back for optimal GPGPU access pattern
         indices = range(ary.ndim)
-        ary = ary.transpose(filter(lambda x: not x in axis, indices) + list(reversed(sorted(axis))))
+        # ary = ary.transpose(filter(lambda x: not x in axis, indices) + list(reversed(sorted(axis)))) # TODO: Why reverse, when we got segmented reductions? It also messes up the fuser!
+        ary = ary.transpose(filter(lambda x: not x in axis, indices) + list((sorted(axis))))
         axis = indices[-len(axis):]
 
         if len(axis) == 1:

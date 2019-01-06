@@ -199,7 +199,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     }
                 }
             } else {
-                auto next_rank = b.getLoop();
+                const LoopB &next_rank = b.getLoop();
 
                 // Check if there exist a segmented reduction, and if we are in the right rank.
                 bool inject_seg_reduce =
@@ -213,6 +213,10 @@ void Engine::writeBlock(const SymbolTable &symbols,
                 if (inject_seg_reduce){
                     const bh_metasweep sweep = sweep_info.front();
 
+                    // TODO: Filter out reductions in this rank, and keep them in a different vector. Inject them at the right places. Inject the rest into the call to writeBlock
+                    /* const LoopB &internal_rank = b.getLoop(); */
+                    //
+
                     size_t indent_level = 0;
                     INDENT; out << "{ // Segmented reduction injected.\n";
                     indent_level = 1;
@@ -223,7 +227,6 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "__local volatile " << writeType(sweep.type()) << " a[DIM1];\n";
 
                     INDENT; out << "size_t lid = get_local_id(0);\n";
-                    INDENT; out << "size_t segment_size; // Rounded up to power of 2\n";
 
                     out << "//";
                     for (unsigned int i=0; i < sweep.left_operand.ndim; ++i) {
@@ -232,21 +235,16 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     out << "\n";
 
                     INDENT; out << "size_t size = " << sweep.left_operand.shape.back() << ";\n";
-                    INDENT; out << "if (size < wavefront_size) {\n";
-                    INDENT; out << "    segment_size = round_up_power2(size);\n";
-                    /* INDENT; out << "    if (lid == 0) {printf(\"SDKOFDSOFJDSO DSFJDSFOJDSF OFD OJDFS %lu \\n\", segment_size);}\n"; */
-                    INDENT; out << "}\n";
-                    INDENT; out << "else{\n";
-                    INDENT; out << "    segment_size = size;\n";
-                    INDENT; out << "}\n";
+                    INDENT; out << "size_t segment_size = round_up_power2(size);\n";
 
-                    INDENT; out << "// For each segment\n";
-                    INDENT; out << "size_t sid = lid % segment_size; // Internal segment thread ID\n";
+                    INDENT; out << "const size_t increment_size = (segment_size < wavefront_size ? segment_size : wavefront_size);\n";
+                    INDENT; out << "size_t sid = lid % increment_size; // Internal segment thread ID\n";
 
                     // With 128 work-group size, this is between 4 and 64. The following loop will run between 32 to 2 times respectively.
-                    INDENT; out << "const size_t segments_per_workgroup = DIM1 / segment_size;\n";
+                    INDENT; out << "const size_t segments_per_workgroup = DIM1 / increment_size;\n"; // TODO: This is not right! Hangs at segment_size > 128
 
-                    INDENT; out << "for (size_t segment_id = (lid/segment_size); segment_id < " << sweep.left_operand.shape.end()[-2] << "; segment_id += segments_per_workgroup){\n";
+                    INDENT; out << "// For each segment\n";
+                    INDENT; out << "for (size_t segment_id = (lid/increment_size); segment_id < " << sweep.left_operand.shape.end()[-2] << "; segment_id += segments_per_workgroup){\n";
                     INDENT; out << "    " << writeType(sweep.type()) << " acc = ";
                     jitk::sweep_identity(sweep.opcode, sweep.type()).pprint(out, true);
                     out << ";\n";
@@ -254,7 +252,6 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     /* INDENT; out << "    if (lid == 0) {printf(\"kdsofopkd %lu \\n\", segment_id);}\n"; */
                     INDENT; out << "    // Read in data\n";
                     // Offset for each wavefront at a contigous, oversized segment. Has to work once, multiple times, and smaller than wavefront sizes.\n";
-                    INDENT; out << "    const size_t increment_size = (segment_size < wavefront_size ? segment_size : wavefront_size);\n";
                     INDENT; out << "    for (int j=sid; j < size; j += increment_size) {\n";
                     INDENT; out << "        // IMPORTANT! ALL INDICES HAS TO BE REINSTANTIATED BECAUSE OF GOTO!\n";
 
@@ -264,6 +261,13 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     }
                     INDENT; out << "        const ulong i" << dims-2 << " = segment_id;\n";
                     INDENT; out << "        const ulong i" << dims-1 << " = j;\n";
+
+                    writeBlock(symbols, &scope, next_rank, thread_stack, opencl, out, sweep_info, parallelize_rank);
+
+                    // TODO: Then special-handle multiple seg-reductions around here? Make multiple write-back arrays etc...
+
+                    // TODO: Use sweep_info as a jump-stack!!
+
                     INDENT; out << "        acc = ";
                     {
                         stringstream ss;
@@ -279,9 +283,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
 
                     INDENT; out << "    // Reduce segment\n";
                     INDENT; out << "    a[lid] = acc;\n";
-                    INDENT; out << "    barrier(CLK_LOCAL_MEM_FENCE); // Needed for some reason... TODO.\n";
                     INDENT; out << "    bool running = ((sid%2) == 0);\n";
-                    /* INDENT; out << "    if (lid == 0) {printf(\"43534534435 %lu \\n\", increment_size);}\n"; */
                     INDENT; out << "    for (size_t i=1; i<=increment_size/2; i<<=1){\n";
                     INDENT; out << "        if (running){\n";
                     INDENT; out << "            running = (sid%(i<<2) == 0);\n";

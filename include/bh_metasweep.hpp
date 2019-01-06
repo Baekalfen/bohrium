@@ -36,15 +36,17 @@ struct bh_metasweep {
     bh_view right_operand;
     int axis;
     bool alone;
+    size_t goto_number;
 
-    bh_metasweep(size_t rank, bool alone, const bh_instruction &sweep) : rank(rank) {
+    bh_metasweep(size_t rank, bool alone, size_t goto_number, const bh_instruction &sweep) : rank(rank) {
         opcode = sweep.opcode;
         assert (bh_opcode_is_sweep(opcode));
         axis = sweep.sweep_axis();
         auto views = sweep.getViews();
-        left_operand = views.back();
+        left_operand = views.back(); // I know these are reversed semantically.
         right_operand = views.front();
         this->alone = alone;
+        this->goto_number = goto_number;
     }
 
     bool is_segment() const {

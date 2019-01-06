@@ -290,12 +290,12 @@ private:
             /*     } */
             /* } */
 
+            find_sweep_info(*block, out); // Placed infront of the for-loop to have the sweeps in decending order
             for (std::shared_ptr<const bh_instruction> _sweep: block->getSweeps()) {
                 const bh_instruction &sweep = *_sweep.get();
                 std::cout << sweep.pprint() << "\n";
                 out.push_back(bh_metasweep(block->rank, alone, goto_counter++, sweep));
             }
-            find_sweep_info(*block, out);
         }
         std::cout << "-----------------------------\n";
     }
@@ -318,7 +318,7 @@ private:
         // Determine if there is a vector-reduction kernel.
         std::vector<bh_metasweep> sweep_info = {};
         find_sweep_info(kernel, sweep_info);
-        std::cout << "sweep_info:" << endl;
+        std::cout << "sweep_info: " << sweep_info.size() << endl;
         for (const bh_metasweep &metasweep: sweep_info) {
             cout << metasweep.pprint(true) << "\n";
         }

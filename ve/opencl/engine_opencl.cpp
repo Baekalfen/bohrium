@@ -900,37 +900,128 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 }
             }
 
-            util::spaces(ss, 4);
-            ss << "// WARN: These has to be separated from the lines above because of the goto!!!\n";
-            // WARN: These has to be separated from the lines above because of the goto!!!
-            for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
-                util::spaces(ss, 4);
-                if (is_scalar_reduction){
-                    // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
-                    ss << "if (g" << axis_lowest_stride << " >= " << thread_stack[axis_lowest_stride] << ") { ";
-                }
-                else{
-                    ss << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { ";
-                }
+            // TODO: It's ok to have size()>1 as long as only one rank has the seg_reduce and there is an scalar reduction
+            /* ss << "// Reason: " << sweep_info.size() << ", " << sweep_info.front().is_segment() << ", " << sweep_info.front().sweep_axis() << ", " << thread_stack.size() << endl; */
+            /* bool inject_seg_reduce = */
+                /* (sweep_info.size() > 0) && */
+                /* (sweep_info.size() == 1) && */
+                /* sweep_info.front().alone && */
+                /* sweep_info.front().is_segment() && */
+                /* (sweep_info.front().sweep_axis() == thread_stack.size()); */
 
-                // TODO: It's ok to have size()>1 as long as only one rank has the seg_reduce and there is an scalar reduction
-                bool inject_seg_reduce =
-                    (sweep_info.size() == 1) &&
-                    sweep_info.front().alone &&
-                    sweep_info.front().is_segment() &&
-                    (sweep_info.front().sweep_axis() == thread_stack.size());
-
-                string goto_label;
-                if (inject_seg_reduce){
-                    goto_label = "seg_reduce";
+            bool inject_seg_reduce = false;
+            for (unsigned int i=0; i < sweep_info.size(); ++i) {
+                if (sweep_info[i].is_segment() && (sweep_info[i].sweep_axis() == thread_stack.size())){
+                    inject_seg_reduce = true;
+                    break;
                 }
-                else {
-                    goto_label = "skip_block";
-                }
-
-                ss << "goto " << goto_label << "; } // Prevent overflow\n";
             }
 
+
+            size_t thrdstack = thread_stack.size();
+            size_t dims = thread_stack.size();
+            size_t gpgpu_ranks = 3;
+            size_t for_count = std::max(0, ((int)thrdstack)-((int)gpgpu_ranks));
+            util::spaces(ss, 4);
+            ss << "// Const iterator definitions:\n";
+            for (unsigned int i=for_count; i < dims; ++i) {
+                util::spaces(ss, 4);
+                ss << "const ulong i" << i << " = g" << i << ";\n";
+            }
+            if (inject_seg_reduce){
+                const bh_metasweep sweep = sweep_info.front();
+                // Header when injecting seg-reduce
+                ss << "// For-loop iterator definitions:\n";
+                // Pre-gpgpu ranks
+                for (unsigned int i=0; i < for_count; ++i) {
+                    /* ss << "// for ... i" << i << " = g" << i << ";\n"; */
+                    util::spaces(ss, 4);
+                    std::string itername; { std::stringstream t; t << "i" << i; itername = t.str(); }
+                    ss << writeType(bh_type::UINT64) << " " << itername << " = 0;\n";
+                }
+                // Reduction ranks
+                for (unsigned int i=thread_stack.size(); i < sweep.left_operand.ndim - thread_stack.size(); ++i) {
+                    /* ss << "// for ... i" << i << " = g" << i << ";\n"; */
+                    util::spaces(ss, 4);
+                    std::string itername; { std::stringstream t; t << "i" << i; itername = t.str(); }
+                    ss << writeType(bh_type::UINT64) << " " << itername << " = 0;\n";
+                }
+
+                util::spaces(ss, 4);
+                ss << "if (";
+                for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
+                    ss << "(g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") || ";
+                }
+                ss << "false){\n";
+
+                /* ss << "// "; */
+                /* for (unsigned int i=0; i < thread_stack.size(); ++i) { */
+                /*     ss << thread_stack[i] << " "; */
+                /* } */
+                /* ss << "\n"; */
+
+                /* ss << "// "; */
+                /* for (unsigned int i=0; i < sweep.left_operand.ndim; ++i) { */
+                /*     ss << sweep.left_operand.shape[i] << " "; */
+                /* } */
+                /* ss << "\n"; */
+
+                util::spaces(ss, 4);
+                ss << "// For-loop iterator definitions:\n";
+                // Pre-gpgpu ranks
+                for (unsigned int i=0; i < for_count; ++i) {
+                    /* ss << "// for ... i" << i << " = g" << i << ";\n"; */
+                    util::spaces(ss, 4*(i+1));
+                    std::string itername; { std::stringstream t; t << "i" << i; itername = t.str(); }
+                    ss << "for (" << itername << " = 0; ";
+                    ss << itername << " < " << thread_stack[i] << "; ++" << itername << ") {\n";
+                }
+                // Reduction ranks
+                /* ss << "// " << sweep.left_operand.ndim << " " << gpgpu_ranks << " " << thread_stack.size() << endl; */
+                for (unsigned int i=thread_stack.size(); i < sweep.left_operand.ndim - thread_stack.size(); ++i) {
+                    /* ss << "// for ... i" << i << " = g" << i << ";\n"; */
+                    util::spaces(ss, 4*(i+1));
+                    std::string itername; { std::stringstream t; t << "i" << i; itername = t.str(); }
+                    ss << "for (" << itername << " = 0; ";
+                    ss << itername << " < " << sweep.left_operand.shape[i] << "; ++" << itername << ") {\n";
+                }
+
+                util::spaces(ss, 4*(sweep.left_operand.ndim - thread_stack.size() + 1));
+                ss << "goto seg_reduce;\n";
+                util::spaces(ss, 4*(sweep.left_operand.ndim - thread_stack.size() + 1));
+                ss << "seg_reduce_return: ;\n";
+
+                for (unsigned int i=sweep.left_operand.ndim - thread_stack.size(); i > thread_stack.size(); --i) {
+                    util::spaces(ss, 4*i);
+                    ss << "}\n";
+                }
+                for (unsigned int i=for_count; i > 0; --i) {
+                    util::spaces(ss, 4*i);
+                    ss << "}\n";
+                }
+
+                util::spaces(ss, 4);
+                ss << "goto skip_block;\n";
+
+
+                /* goto_label = "seg_reduce"; */
+                ss << "}\n";
+            }
+            else{
+                // Regular header
+                for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
+                    util::spaces(ss, 4);
+                    if (is_scalar_reduction){
+                        // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
+                        ss << "if (g" << axis_lowest_stride << " >= " << thread_stack[axis_lowest_stride] << ") { ";
+                    }
+                    else{
+                        ss << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { ";
+                    }
+
+                    ss << "goto skip_block; } // Prevent overflow\n";
+                }
+            }
         }
         ss << "\n";
     }
@@ -983,10 +1074,12 @@ void EngineOpenCL::loopHeadWriter(const jitk::SymbolTable &symbols,
 
         if (parallelize_rank >= static_cast<size_t >(block.rank) &&
             ((int64_t) static_cast<size_t >(block.rank)) > ((int64_t) parallelize_rank) - opt_access_pattern){
-            out << "{const " << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << ";";
+            /* out << "{const " << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << ";"; */
+            out << "{//const " << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << ";";
         }
         else {
-            out << "for (" << writeType(bh_type::UINT64) << " " << itername << " = 0; ";
+            /* out << "for (" << writeType(bh_type::UINT64) << " " << itername << " = 0; "; */
+            out << "for (" << itername << " = 0; ";
             out << itername << " < " << block.size << "; ++" << itername << ") {";
         }
         out << "\n";

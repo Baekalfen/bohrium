@@ -202,9 +202,11 @@ void Engine::writeBlock(const SymbolTable &symbols,
                 const LoopB &next_rank = b.getLoop();
 
                 // Check if there exist a segmented reduction, and if we are in the right rank.
+                /* out << "// THISL: " << sweep_info.front().sweep_axis() << endl; */
                 bool inject_seg_reduce =
-                    (sweep_info.size() == 1) &&
-                    sweep_info.front().alone &&
+                    (sweep_info.size() > 0) &&
+                    /* (sweep_info.size() == 1) && */
+                    /* sweep_info.front().alone && */
                     (sweep_info.front().sweep_axis() == b.rank()) &&
                     sweep_info.front().is_segment() &&
                     next_rank.isInnermost();
@@ -214,8 +216,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     const bh_metasweep sweep = sweep_info.front();
 
                     // TODO: Filter out reductions in this rank, and keep them in a different vector. Inject them at the right places. Inject the rest into the call to writeBlock
-                    /* const LoopB &internal_rank = b.getLoop(); */
-                    //
+                    size_t parallel_rank = 0;
 
                     size_t indent_level = 0;
                     INDENT; out << "{ // Segmented reduction injected.\n";
@@ -223,16 +224,10 @@ void Engine::writeBlock(const SymbolTable &symbols,
 
                     INDENT; out << "bool im_temp = false; if (false) {seg_reduce: ;im_temp = true;};\n";
                     // Max length is max segments pr. workgroup (not alot).
-                    INDENT; out << "__local volatile " << writeType(sweep.type()) << " write_back[" << sweep.left_operand.shape.end()[-2] << "];\n";
+                    INDENT; out << "__local volatile " << writeType(sweep.type()) << " write_back[" << sweep.left_operand.shape.begin()[parallel_rank] << "];\n";
                     INDENT; out << "__local volatile " << writeType(sweep.type()) << " a[DIM1];\n";
 
                     INDENT; out << "size_t lid = get_local_id(0);\n";
-
-                    out << "//";
-                    for (unsigned int i=0; i < sweep.left_operand.ndim; ++i) {
-                        out << sweep.left_operand.shape[i] << " ";
-                    }
-                    out << "\n";
 
                     INDENT; out << "size_t size = " << sweep.left_operand.shape.back() << ";\n";
                     INDENT; out << "size_t segment_size = round_up_power2(size);\n";
@@ -244,7 +239,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "const size_t segments_per_workgroup = DIM1 / increment_size;\n"; // TODO: This is not right! Hangs at segment_size > 128
 
                     INDENT; out << "// For each segment\n";
-                    INDENT; out << "for (size_t segment_id = (lid/increment_size); segment_id < " << sweep.left_operand.shape.end()[-2] << "; segment_id += segments_per_workgroup){\n";
+                    INDENT; out << "for (size_t segment_id = (lid/increment_size); segment_id < " << sweep.left_operand.shape.begin()[parallel_rank] << "; segment_id += segments_per_workgroup){\n";
                     INDENT; out << "    " << writeType(sweep.type()) << " acc = ";
                     jitk::sweep_identity(sweep.opcode, sweep.type()).pprint(out, true);
                     out << ";\n";
@@ -253,13 +248,13 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "    // Read in data\n";
                     // Offset for each wavefront at a contigous, oversized segment. Has to work once, multiple times, and smaller than wavefront sizes.\n";
                     INDENT; out << "    for (int j=sid; j < size; j += increment_size) {\n";
-                    INDENT; out << "        // IMPORTANT! ALL INDICES HAS TO BE REINSTANTIATED BECAUSE OF GOTO!\n";
+                    /* INDENT; out << "        // IMPORTANT! ALL INDICES HAS TO BE REINSTANTIATED BECAUSE OF GOTO!\n"; */
 
                     size_t dims = sweep.left_operand.ndim;
-                    for (unsigned int i=0; i < dims-2; ++i) {
-                        INDENT; out << "        const ulong i" << i << " = g" << i << ";\n";
-                    }
-                    INDENT; out << "        const ulong i" << dims-2 << " = segment_id;\n";
+                    /* for (unsigned int i=0; i < dims-2; ++i) { */
+                    /*     INDENT; out << "        const ulong i" << i << " = g" << i << ";\n"; */
+                    /* } */
+                    INDENT; out << "        const ulong i" << parallel_rank << " = segment_id;\n";
                     INDENT; out << "        const ulong i" << dims-1 << " = j;\n";
 
                     writeBlock(symbols, &scope, next_rank, thread_stack, opencl, out, sweep_info, parallelize_rank);
@@ -300,7 +295,20 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "    }\n";
                     INDENT; out << "}\n";
                     INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n";
-                    INDENT; out << "if (im_temp) {goto skip_block;}\n";
+                    INDENT; out << "if (im_temp) {goto seg_reduce_return;}\n";
+
+                    out << "// ";
+                    for (unsigned int i=0; i < thread_stack.size(); ++i) {
+                        out << thread_stack[i] << " ";
+                    }
+                    out << "\n";
+
+                    out << "// ";
+                    for (unsigned int i=0; i < sweep.left_operand.ndim; ++i) {
+                        out << sweep.left_operand.shape[i] << " ";
+                    }
+                    out << "\n";
+
 
                     // Handling write-back to Bohriums scalar replacement
                     INDENT;

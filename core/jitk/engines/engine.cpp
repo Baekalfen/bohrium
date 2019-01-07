@@ -236,7 +236,7 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     // Max length is max segments pr. workgroup (not alot).
                     for (const bh_metasweep s: sweeps) {
                         INDENT; out << "__local volatile " << writeType(s.type()) << " write_back" << s.id << "[" << s.left_operand.shape.begin()[parallel_rank] << "];\n";
-                        INDENT; out << "__local volatile " << writeType(s.type()) << " a" << s.id << "[DIM1];\n";
+                        INDENT; out << "__local volatile " << writeType(s.type()) << " _a" << s.id << "[DIM1];\n";
                     }
 
                     INDENT; out << "size_t lid = get_local_id(0);\n";
@@ -294,7 +294,7 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                         string &var = returned_lookups[i];
                         std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
 
-                        INDENT; out << "    a" << s.id << "[lid] = " << acc_id << ";\n";
+                        INDENT; out << "    _a" << s.id << "[lid] = " << acc_id << ";\n";
                     }
 
                     INDENT; out << "    // Reduce segment\n";
@@ -308,9 +308,9 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                         std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
 
                         INDENT; out << "            " << acc_id << " = ";
-                        s.write_op(out, acc_id, "a" + to_string(s.id) + "[lid+i]");
+                        s.write_op(out, acc_id, "_a" + to_string(s.id) + "[lid+i]");
                         out << ";\n";
-                        INDENT; out << "            a" << s.id << "[lid] = " << acc_id << ";\n";
+                        INDENT; out << "            _a" << s.id << "[lid] = " << acc_id << ";\n";
                     }
                     INDENT; out << "        }\n";
                     INDENT; out << "    }\n";

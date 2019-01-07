@@ -220,7 +220,12 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
 
                 // NOTE: If we create a config for it, segmented reductions can be disabled in the following if-statement:
                 if (inject_seg_reduce){
-                    const bh_metasweep sweep = sweep_info.front();
+                    vector<bh_metasweep> sweeps = {}; //sweep_info.front();
+                    for (bh_metasweep &s: sweep_info) {
+                        if (s.rank == next_rank.rank && s.is_segment()){
+                            sweeps.push_back(s);
+                        }
+                    }
 
                     // TODO: Filter out reductions in this rank, and keep them in a different vector. Inject them at the right places. Inject the rest into the call to writeBlock
                     size_t parallel_rank = thread_stack.size()-1;
@@ -229,14 +234,15 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "{ // Segmented reduction injected.\n";
                     indent_level = 1;
 
-                    /* INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n"; */
                     // Max length is max segments pr. workgroup (not alot).
-                    INDENT; out << "__local volatile " << writeType(sweep.type()) << " write_back[" << sweep.left_operand.shape.begin()[parallel_rank] << "];\n";
-                    INDENT; out << "__local volatile " << writeType(sweep.type()) << " a[DIM1];\n";
+                    for (const bh_metasweep s: sweeps) {
+                        INDENT; out << "__local volatile " << writeType(s.type()) << " write_back" << s.id << "[" << s.left_operand.shape.begin()[parallel_rank] << "];\n";
+                        INDENT; out << "__local volatile " << writeType(s.type()) << " a" << s.id << "[DIM1];\n";
+                    }
 
                     INDENT; out << "size_t lid = get_local_id(0);\n";
 
-                    INDENT; out << "size_t size = " << sweep.left_operand.shape.back() << ";\n";
+                    INDENT; out << "size_t size = " << sweeps.front().left_operand.shape.back() << ";\n";
                     INDENT; out << "size_t segment_size = round_up_power2(size);\n";
 
                     INDENT; out << "const size_t increment_size = (segment_size < wavefront_size ? segment_size : wavefront_size);\n";
@@ -246,56 +252,84 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "const size_t segments_per_workgroup = DIM1 / increment_size;\n"; // TODO: This is not right! Hangs at segment_size > 128
 
                     INDENT; out << "// For each segment\n";
-                    INDENT; out << "for (size_t segment_id = (lid/increment_size); segment_id < " << sweep.left_operand.shape.begin()[parallel_rank] << "; segment_id += segments_per_workgroup){\n";
-                    INDENT; out << "    " << writeType(sweep.type()) << " acc = ";
-                    jitk::sweep_identity(sweep.opcode, sweep.type()).pprint(out, true);
-                    out << ";\n";
+                    INDENT; out << "for (size_t segment_id = (lid/increment_size); segment_id < " << sweeps.front().left_operand.shape.begin()[parallel_rank] << "; segment_id += segments_per_workgroup){\n";
+
+                    for (const bh_metasweep s: sweeps) {
+                        INDENT; out << "    " << writeType(s.type()) << " acc" << s.id << " = ";
+                        jitk::sweep_identity(s.opcode, s.type()).pprint(out, true);
+                        out << ";\n";
+                    }
 
                     INDENT; out << "    // Read in data\n";
                     // Offset for each wavefront at a contigous, oversized segment. Has to work once, multiple times, and smaller than wavefront sizes.\n";
                     INDENT; out << "    for (int j=sid; j < size; j += increment_size) {\n";
 
-                    size_t dims = sweep.left_operand.ndim;
+                    size_t dims = sweeps.front().left_operand.ndim;
                     INDENT; out << "        const ulong i" << parallel_rank << " = segment_id;\n";
                     INDENT; out << "        const ulong i" << dims-1 << " = j;\n";
 
-
-                    // TODO: Then special-handle multiple seg-reductions around here? Make multiple write-back arrays etc...
-
-                    // TODO: Use sweep_info as a jump-stack!!
-                    vector<string> returned_lookups = writeBlock(symbols, &scope, next_rank, thread_stack, opencl, out, sweep_info, parallelize_rank, {sweep.left_operand});
+                    vector<bh_view> wanted_lookups = {};
+                    for (const bh_metasweep s: sweeps) {
+                        wanted_lookups.push_back(s.left_operand);
+                    }
+                    vector<string> returned_lookups = writeBlock(symbols, &scope, next_rank, thread_stack, opencl, out, sweep_info, parallelize_rank, wanted_lookups);
                     out << "//";
                     for (std::string name: returned_lookups) {
                         out << " " << name;
                     }
                     out << "\n";
 
-                    INDENT; out << "        acc = ";
-                    {
-                        sweep.write_op(out, "acc", returned_lookups.front());
+                    for (size_t i=0; i<wanted_lookups.size(); i++) {
+                        const bh_metasweep s = sweeps[i];
+                        string &var = returned_lookups[i];
+                        std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
+
+                        INDENT; out << "        " << acc_id<< " = ";
+                        s.write_op(out, acc_id, var);
+                        out << ";\n";
                     }
-                    out << ";\n";
                     INDENT; out << "    }\n";
 
+                    for (int i=0; i<wanted_lookups.size(); i++) {
+                        const bh_metasweep s = sweeps[i];
+                        string &var = returned_lookups[i];
+                        std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
+
+                        INDENT; out << "    a" << s.id << "[lid] = " << acc_id << ";\n";
+                    }
+
                     INDENT; out << "    // Reduce segment\n";
-                    INDENT; out << "    a[lid] = acc;\n";
+                    INDENT; out << "    {\n";
                     INDENT; out << "    bool running = ((sid%2) == 0);\n";
                     INDENT; out << "    for (size_t i=1; i<=increment_size/2; i<<=1){\n";
                     INDENT; out << "        if (running){\n";
                     INDENT; out << "            running = (sid%(i<<2) == 0);\n";
-                    INDENT; out << "            acc = ";
-                    sweep.write_op(out, "acc", "a[lid+i]");
-                    out << ";\n";
-                    INDENT; out << "            a[lid] = acc;\n";
+                    for (int i=0; i<wanted_lookups.size(); i++) {
+                        const bh_metasweep s = sweeps[i];
+                        std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
+
+                        INDENT; out << "            " << acc_id << " = ";
+                        s.write_op(out, acc_id, "a" + to_string(s.id) + "[lid+i]");
+                        out << ";\n";
+                        INDENT; out << "            a" << s.id << "[lid] = " << acc_id << ";\n";
+                    }
                     INDENT; out << "        }\n";
                     INDENT; out << "    }\n";
 
                     // Writeback to result array. Saves barriers at expense of some local memory, compared calling barrier now, and fetching across wavefronts.
                     INDENT; out << "    if (sid == 0){\n";
-                    INDENT; out << "        write_back[segment_id] = acc;\n";
+                    for (int i=0; i<wanted_lookups.size(); i++) {
+                        const bh_metasweep s = sweeps[i];
+                        std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
+
+                        INDENT; out << "        write_back" << s.id << "[segment_id] = " << acc_id << ";\n";
+                    }
                     INDENT; out << "    }\n";
+                    INDENT; out << "    }\n";
+
                     INDENT; out << "}\n";
                     INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n";
+                    INDENT;
                     if (b.rank()-1 > (int)parallelize_rank){
                         out << "if (redundant) {continue;}\n";
                     }
@@ -304,15 +338,19 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     }
 
                     // Handling write-back to Bohriums scalar replacement
-                    INDENT;
-                    {
-                        const bh_view &view = sweep.right_operand;
+                    for (int i=0; i<wanted_lookups.size(); i++) {
+                        const bh_metasweep s = sweeps[i];
+                        string &var = returned_lookups[i];
+                        std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
+
+                        const bh_view &view = s.right_operand;
+                        INDENT;
                         scope.getName(view, out);
                         if (scope.isArray(view)) {
                             write_array_subscription(scope, view, out);
                         }
+                        out << " = write_back" << s.id << "[lid];\n";
                     }
-                    out << " = write_back[lid];\n";
 
                     indent_level = 0;
                     INDENT; out << "}\n";

@@ -266,6 +266,7 @@ private:
         stat.time_offload += chrono::steady_clock::now() - toffload;
     }
 
+    size_t goto_counter = 0;
     void find_sweep_info(const LoopB &kernel, std::vector<bh_metasweep> &out){
         std::vector<bh_metasweep> sweep_info = {};
         vector<const LoopB *> subBlocks = kernel.getLocalSubBlocks();
@@ -273,7 +274,6 @@ private:
 
         /* auto sweeps = rank0->getSweeps(); */
         std::cout << "#############################\n";
-        size_t goto_counter = 0;
         for (const LoopB *block: subBlocks) {
             // The sweeps are alone, if there are just as many instructions, as sweeps.
             bool alone = true;//block->getLocalInstr().size() == block->getSweeps().size();
@@ -293,8 +293,9 @@ private:
             find_sweep_info(*block, out); // Placed infront of the for-loop to have the sweeps in decending order
             for (std::shared_ptr<const bh_instruction> _sweep: block->getSweeps()) {
                 const bh_instruction &sweep = *_sweep.get();
-                std::cout << sweep.pprint() << "\n";
-                out.push_back(bh_metasweep(block->rank, alone, goto_counter++, sweep));
+                size_t counter = goto_counter++;
+                std::cout << sweep.pprint() << " Counter: " << counter << "\n";
+                out.push_back(bh_metasweep(block->rank, alone, counter, sweep));
             }
         }
         std::cout << "-----------------------------\n";

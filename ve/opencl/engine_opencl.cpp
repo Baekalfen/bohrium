@@ -919,25 +919,14 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 }
             }
 
-
             size_t thrdstack = thread_stack.size();
             size_t dims = thread_stack.size();
             size_t gpgpu_ranks = 3;
             size_t for_count = std::max(0, ((int)thrdstack)-((int)gpgpu_ranks));
-            /* util::spaces(ss, 4); */
-            /* ss << "// Const iterator definitions:\n"; */
-            /* for (unsigned int i=for_count; i < dims; ++i) { */
-            /*     util::spaces(ss, 4); */
-            /*     ss << "const ulong i" << i << " = g" << i << ";\n"; */
-            /* } */
             if (inject_seg_reduce){
                 const bh_metasweep sweep = sweep_info.front();
                 // Header when injecting seg-reduce
                 size_t parallel_rank = thread_stack.size()-1;
-                util::spaces(ss, 4);
-                ss << "__local volatile " << writeType(sweep.type()) << " write_back[" << sweep.left_operand.shape.begin()[parallel_rank] << "];\n";
-                util::spaces(ss, 4);
-                ss << "__local volatile " << writeType(sweep.type()) << " a[DIM1];\n";
 
                 util::spaces(ss, 4);
                 ss << "if (";

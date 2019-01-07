@@ -209,21 +209,20 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                 const LoopB &next_rank = b.getLoop();
 
                 // Check if there exist a segmented reduction, and if we are in the right rank.
-                /* out << "// THISL: " << sweep_info.front().sweep_axis() << endl; */
                 bool inject_seg_reduce =
                     (sweep_info.size() > 0) &&
-                    /* (sweep_info.size() == 1) && */
-                    /* sweep_info.front().alone && */
                     (sweep_info.front().sweep_axis() == b.rank()) &&
                     sweep_info.front().is_segment() &&
                     next_rank.isInnermost();
 
                 // NOTE: If we create a config for it, segmented reductions can be disabled in the following if-statement:
                 if (inject_seg_reduce){
-                    vector<bh_metasweep> sweeps = {}; //sweep_info.front();
+                    vector<bh_metasweep> sweeps = {};
+                    size_t desired_size = sweep_info.front().left_operand.shape.back(); // Avoid merging 2 different ranks by mistake
                     for (bh_metasweep &s: sweep_info) {
-                        if (s.rank == next_rank.rank && s.is_segment()){
+                        if (s.rank == next_rank.rank && s.is_segment() && s.left_operand.shape.back() == desired_size){
                             sweeps.push_back(s);
+                            cout << s.left_operand.shape << endl;
                         }
                     }
 

@@ -278,18 +278,6 @@ private:
             // The sweeps are alone, if there are just as many instructions, as sweeps.
             bool alone = true;//block->getLocalInstr().size() == block->getSweeps().size();
 
-            // Possibly use the following to whitelist some instructions.
-            /* if (!alone) { */
-            /*     for (InstrPtr instr: block->getLocalInstr()) { */
-            /*         std::cout << instr.get()->pprint() << "\n"; */
-            /*         if (!bh_opcode_is_reduction(instr->opcode)){ */
-            /*             alone = false; */
-            /*             cout << "Not alone!"<< endl; */
-            /*             break; */
-            /*         } */
-            /*     } */
-            /* } */
-
             find_sweep_info(*block, out); // Placed infront of the for-loop to have the sweeps in decending order
             for (std::shared_ptr<const bh_instruction> _sweep: block->getSweeps()) {
                 const bh_instruction &sweep = *_sweep.get();

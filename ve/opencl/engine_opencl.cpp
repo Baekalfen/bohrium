@@ -865,6 +865,8 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "__DATA_TYPE__ element;\n";
     }
 
+    ss << "bool redundant = false;\n";
+
     // Write the IDs and overflow guards of the threaded blocks
     if (not thread_stack.empty()) {
         util::spaces(ss, 4);
@@ -922,30 +924,20 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             size_t dims = thread_stack.size();
             size_t gpgpu_ranks = 3;
             size_t for_count = std::max(0, ((int)thrdstack)-((int)gpgpu_ranks));
-            util::spaces(ss, 4);
-            ss << "// Const iterator definitions:\n";
-            for (unsigned int i=for_count; i < dims; ++i) {
-                util::spaces(ss, 4);
-                ss << "const ulong i" << i << " = g" << i << ";\n";
-            }
+            /* util::spaces(ss, 4); */
+            /* ss << "// Const iterator definitions:\n"; */
+            /* for (unsigned int i=for_count; i < dims; ++i) { */
+            /*     util::spaces(ss, 4); */
+            /*     ss << "const ulong i" << i << " = g" << i << ";\n"; */
+            /* } */
             if (inject_seg_reduce){
                 const bh_metasweep sweep = sweep_info.front();
                 // Header when injecting seg-reduce
-                ss << "// For-loop iterator definitions:\n";
-                // Pre-gpgpu ranks
-                for (unsigned int i=0; i < for_count; ++i) {
-                    /* ss << "// for ... i" << i << " = g" << i << ";\n"; */
-                    util::spaces(ss, 4);
-                    std::string itername; { std::stringstream t; t << "i" << i; itername = t.str(); }
-                    ss << writeType(bh_type::UINT64) << " " << itername << " = 0;\n";
-                }
-                // Reduction ranks
-                for (unsigned int i=thread_stack.size(); i < sweep.left_operand.ndim-1; ++i) {
-                    /* ss << "// for ... i" << i << " = g" << i << ";\n"; */
-                    util::spaces(ss, 4);
-                    std::string itername; { std::stringstream t; t << "i" << i; itername = t.str(); }
-                    ss << writeType(bh_type::UINT64) << " " << itername << " = 0;\n";
-                }
+                size_t parallel_rank = thread_stack.size()-1;
+                util::spaces(ss, 4);
+                ss << "__local volatile " << writeType(sweep.type()) << " write_back[" << sweep.left_operand.shape.begin()[parallel_rank] << "];\n";
+                util::spaces(ss, 4);
+                ss << "__local volatile " << writeType(sweep.type()) << " a[DIM1];\n";
 
                 util::spaces(ss, 4);
                 ss << "if (";
@@ -954,57 +946,9 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 }
                 ss << "false){\n";
 
-                /* ss << "// "; */
-                /* for (unsigned int i=0; i < thread_stack.size(); ++i) { */
-                /*     ss << thread_stack[i] << " "; */
-                /* } */
-                /* ss << "\n"; */
-
-                /* ss << "// "; */
-                /* for (unsigned int i=0; i < sweep.left_operand.ndim; ++i) { */
-                /*     ss << sweep.left_operand.shape[i] << " "; */
-                /* } */
-                /* ss << "\n"; */
-
+                util::spaces(ss, 8);
+                ss << "redundant = true;\n";
                 util::spaces(ss, 4);
-                ss << "// For-loop iterator definitions:\n";
-                // Pre-gpgpu ranks
-                for (unsigned int i=0; i < for_count; ++i) {
-                    /* ss << "// for ... i" << i << " = g" << i << ";\n"; */
-                    util::spaces(ss, 4*(i+1));
-                    std::string itername; { std::stringstream t; t << "i" << i; itername = t.str(); }
-                    ss << "for (" << itername << " = 0; ";
-                    ss << itername << " < " << thread_stack[i] << "; ++" << itername << ") {\n";
-                }
-                // Reduction ranks
-                /* ss << "// " << sweep.left_operand.ndim << " " << gpgpu_ranks << " " << thread_stack.size() << endl; */
-                for (unsigned int i=thread_stack.size(); i < sweep.left_operand.ndim - 1; ++i) {
-                    /* ss << "// for ... i" << i << " = g" << i << ";\n"; */
-                    util::spaces(ss, 4*(i+1));
-                    std::string itername; { std::stringstream t; t << "i" << i; itername = t.str(); }
-                    ss << "for (" << itername << " = 0; ";
-                    ss << itername << " < " << sweep.left_operand.shape[i] << "; ++" << itername << ") {\n";
-                }
-
-                util::spaces(ss, 4*(sweep.left_operand.ndim - thread_stack.size() + 1));
-                ss << "goto seg_reduce;\n";
-                util::spaces(ss, 4*(sweep.left_operand.ndim - thread_stack.size() + 1));
-                ss << "seg_reduce_return: ;\n";
-
-                for (unsigned int i=sweep.left_operand.ndim - 1; i > thread_stack.size(); --i) {
-                    util::spaces(ss, 4*i);
-                    ss << "}\n";
-                }
-                for (unsigned int i=for_count; i > 0; --i) {
-                    util::spaces(ss, 4*i);
-                    ss << "}\n";
-                }
-
-                util::spaces(ss, 4);
-                ss << "goto skip_block;\n";
-
-
-                /* goto_label = "seg_reduce"; */
                 ss << "}\n";
             }
             else{
@@ -1029,12 +973,12 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     // Write inner blocks
     writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, sweep_info, axis_lowest_stride);
 
+    util::spaces(ss, 4);
+    ss << "skip_block: ;\n";
     if (not thread_stack.empty() && (sweep_info.size() > 0) && sweep_info.back().is_scalar()){
         util::spaces(ss, 4);
         // Inject neutral element, when there is no data in global memory to read
-        ss << "if (false) {\n";
-        util::spaces(ss, 8);
-        ss << "skip_block: ;\n";
+        ss << "if (redundant) {\n";
         util::spaces(ss, 8);
         ss << "element = NEUTRAL;\n";
         util::spaces(ss, 4);
@@ -1043,10 +987,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         // Call special rank0 preprocessing for both reduce and scan
         util::spaces(ss, 4);
         ss << "reduce_2pass_preprocess(element, a, res);\n";
-    }
-    else{
-        util::spaces(ss, 4);
-        ss << "skip_block: ;\n";
     }
     ss << "}\n\n";
 }
@@ -1074,12 +1014,10 @@ void EngineOpenCL::loopHeadWriter(const jitk::SymbolTable &symbols,
 
         if (parallelize_rank >= static_cast<size_t >(block.rank) &&
             ((int64_t) static_cast<size_t >(block.rank)) > ((int64_t) parallelize_rank) - opt_access_pattern){
-            /* out << "{const " << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << ";"; */
-            out << "{//const " << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << ";";
+            out << "{const " << writeType(bh_type::UINT64) << " " << itername << " = g" << block.rank << ";";
         }
         else {
-            /* out << "for (" << writeType(bh_type::UINT64) << " " << itername << " = 0; "; */
-            out << "for (" << itername << " = 0; ";
+            out << "for (" << writeType(bh_type::UINT64) << " " << itername << " = 0; ";
             out << itername << " < " << block.size << "; ++" << itername << ") {";
         }
         out << "\n";

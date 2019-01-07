@@ -73,18 +73,19 @@ void Engine::writeKernelFunctionArguments(const jitk::SymbolTable &symbols,
     }
 }
 
-void Engine::writeBlock(const SymbolTable &symbols,
+vector<string> Engine::writeBlock(const SymbolTable &symbols,
                         const Scope *parent_scope,
                         const LoopB &kernel,
                         const std::vector<uint64_t> &thread_stack,
                         bool opencl,
                         std::stringstream &out,
                         std::vector<bh_metasweep> sweep_info,
-                        const size_t parallelize_rank) {
+                        const size_t parallelize_rank,
+                        const vector<bh_view> lookups) {
 
     if (kernel.isSystemOnly()) {
         out << "// Removed loop with only system instructions\n";
-        return;
+        return {};
     }
 
     std::set<jitk::InstrPtr> sweeps_in_child;
@@ -195,6 +196,12 @@ void Engine::writeBlock(const SymbolTable &symbols,
                         out << ";" << endl;
                     } else{
                         util::spaces(out, 4 + b.rank() * 4);
+                        const bh_instruction instr = *b.getInstr();
+                        if (bh_opcode_is_reduction(instr.opcode) &&
+                                kernel.isInnermost() &&
+                                bh_metasweep(b.rank(), true, 0, instr).is_segment()){
+                            out << "// ";
+                        }
                         write_instr(scope, *b.getInstr(), out, true);
                     }
                 }
@@ -222,7 +229,7 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "{ // Segmented reduction injected.\n";
                     indent_level = 1;
 
-                    INDENT; out << "bool im_temp = false; if (false) {seg_reduce: ;im_temp = true;};\n";
+                    /* INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n"; */
                     // Max length is max segments pr. workgroup (not alot).
                     INDENT; out << "__local volatile " << writeType(sweep.type()) << " write_back[" << sweep.left_operand.shape.begin()[parallel_rank] << "];\n";
                     INDENT; out << "__local volatile " << writeType(sweep.type()) << " a[DIM1];\n";
@@ -244,34 +251,28 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     jitk::sweep_identity(sweep.opcode, sweep.type()).pprint(out, true);
                     out << ";\n";
 
-                    /* INDENT; out << "    if (lid == 0) {printf(\"kdsofopkd %lu \\n\", segment_id);}\n"; */
                     INDENT; out << "    // Read in data\n";
                     // Offset for each wavefront at a contigous, oversized segment. Has to work once, multiple times, and smaller than wavefront sizes.\n";
                     INDENT; out << "    for (int j=sid; j < size; j += increment_size) {\n";
-                    /* INDENT; out << "        // IMPORTANT! ALL INDICES HAS TO BE REINSTANTIATED BECAUSE OF GOTO!\n"; */
 
                     size_t dims = sweep.left_operand.ndim;
-                    /* for (unsigned int i=0; i < dims-2; ++i) { */
-                    /*     INDENT; out << "        const ulong i" << i << " = g" << i << ";\n"; */
-                    /* } */
                     INDENT; out << "        const ulong i" << parallel_rank << " = segment_id;\n";
                     INDENT; out << "        const ulong i" << dims-1 << " = j;\n";
 
-                    writeBlock(symbols, &scope, next_rank, thread_stack, opencl, out, sweep_info, parallelize_rank);
 
                     // TODO: Then special-handle multiple seg-reductions around here? Make multiple write-back arrays etc...
 
                     // TODO: Use sweep_info as a jump-stack!!
+                    vector<string> returned_lookups = writeBlock(symbols, &scope, next_rank, thread_stack, opencl, out, sweep_info, parallelize_rank, {sweep.left_operand});
+                    out << "//";
+                    for (std::string name: returned_lookups) {
+                        out << " " << name;
+                    }
+                    out << "\n";
 
                     INDENT; out << "        acc = ";
                     {
-                        stringstream ss;
-                        const bh_view &view = sweep.left_operand;
-                        scope.getName(view, ss);
-                        if (scope.isArray(view)) {
-                            write_array_subscription(scope, view, ss);
-                        }
-                        sweep.write_op(out, "acc", ss.str());
+                        sweep.write_op(out, "acc", returned_lookups.front());
                     }
                     out << ";\n";
                     INDENT; out << "    }\n";
@@ -295,20 +296,12 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "    }\n";
                     INDENT; out << "}\n";
                     INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n";
-                    INDENT; out << "if (im_temp) {goto seg_reduce_return;}\n";
-
-                    out << "// ";
-                    for (unsigned int i=0; i < thread_stack.size(); ++i) {
-                        out << thread_stack[i] << " ";
+                    if (b.rank()-1 > (int)parallelize_rank){
+                        out << "if (redundant) {continue;}\n";
                     }
-                    out << "\n";
-
-                    out << "// ";
-                    for (unsigned int i=0; i < sweep.left_operand.ndim; ++i) {
-                        out << sweep.left_operand.shape[i] << " ";
+                    else{
+                        out << "if (redundant) {goto skip_block;}\n";
                     }
-                    out << "\n";
-
 
                     // Handling write-back to Bohriums scalar replacement
                     INDENT;
@@ -330,6 +323,13 @@ void Engine::writeBlock(const SymbolTable &symbols,
                     writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, sweep_info, parallelize_rank);
                     util::spaces(out, 4 + b.rank() * 4);
                     out << "}\n";
+                    util::spaces(out, 4 + b.rank() * 4);
+                    if (((int)parallelize_rank)-3 > 0){
+                        out << "if (redundant) {continue;}\n";
+                    }
+                    else{
+                        out << "if (redundant) {goto skip_block;}\n";
+                    }
                 }
             }
         }
@@ -370,6 +370,19 @@ void Engine::writeBlock(const SymbolTable &symbols,
         scope.getName(*view, out);
         out << ";\n";
     }
+
+
+    vector<string> returned_lookups = {};
+    for (const bh_view view: lookups) {
+        stringstream ss;
+        scope.getName(view, ss);
+        if (scope.isArray(view)) {
+            write_array_subscription(scope, view, ss);
+        }
+        returned_lookups.push_back(ss.str());
+    }
+
+    return returned_lookups;
 }
 
 void Engine::setConstructorFlag(std::vector<bh_instruction *> &instr_list, std::set<bh_base *> &constructed_arrays) {

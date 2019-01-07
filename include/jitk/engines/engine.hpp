@@ -154,14 +154,15 @@ protected:
      * @param opencl        Is this a OpenCL/CUDA kernel?
      * @param out           The stream output
      */
-    virtual void writeBlock(const SymbolTable &symbols,
+    virtual std::vector<std::string> writeBlock(const SymbolTable &symbols,
                             const Scope *parent_scope,
                             const LoopB &kernel,
                             const std::vector<uint64_t> &thread_stack,
                             bool opencl,
                             std::stringstream &out,
                             const std::vector<bh_metasweep> sweep_info,
-                            const size_t parallelize_rank = -1);
+                            const size_t parallelize_rank = -1,
+                            const vector<bh_view> lookups = {});
 
     /** Write a loop header
      *

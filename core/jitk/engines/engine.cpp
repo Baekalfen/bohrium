@@ -360,11 +360,12 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, sweep_info, parallelize_rank);
                     util::spaces(out, 4 + b.rank() * 4);
                     out << "}\n";
+
                     util::spaces(out, 4 + b.rank() * 4);
                     if (((int)parallelize_rank)-3 > 0){
                         out << "if (redundant) {continue;}\n";
                     }
-                    else{
+                    else {
                         out << "if (redundant) {goto skip_block;}\n";
                     }
                 }

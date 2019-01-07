@@ -946,13 +946,12 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                     util::spaces(ss, 4);
                     if (is_scalar_reduction){
                         // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
-                        ss << "if (g" << axis_lowest_stride << " >= " << thread_stack[axis_lowest_stride] << ") { ";
+                        ss << "if (g" << axis_lowest_stride << " < " << thread_stack[axis_lowest_stride] << ") { ";
                     }
                     else{
                         ss << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { ";
+                        ss << "goto skip_block; } // Prevent overflow\n";
                     }
-
-                    ss << "goto skip_block; } // Prevent overflow\n";
                 }
             }
         }
@@ -962,12 +961,10 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     // Write inner blocks
     writeBlock(symbols, nullptr, kernel, thread_stack, true, ss, sweep_info, axis_lowest_stride);
 
-    util::spaces(ss, 4);
-    ss << "skip_block: ;\n";
     if (not thread_stack.empty() && (sweep_info.size() > 0) && sweep_info.back().is_scalar()){
-        util::spaces(ss, 4);
         // Inject neutral element, when there is no data in global memory to read
-        ss << "if (redundant) {\n";
+        ss << "} else {\n";
+        ss << "skip_block: ;\n";
         util::spaces(ss, 8);
         ss << "element = NEUTRAL;\n";
         util::spaces(ss, 4);
@@ -976,6 +973,9 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         // Call special rank0 preprocessing for both reduce and scan
         util::spaces(ss, 4);
         ss << "reduce_2pass_preprocess(element, a, res);\n";
+    }
+    else{
+        ss << "skip_block: ;\n";
     }
     ss << "}\n\n";
 }

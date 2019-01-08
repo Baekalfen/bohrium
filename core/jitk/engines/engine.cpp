@@ -199,7 +199,10 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                         const bh_instruction instr = *b.getInstr();
                         if (bh_opcode_is_reduction(instr.opcode) &&
                                 kernel.isInnermost() &&
-                                bh_metasweep(b.rank(), true, 0, instr).is_segment()){
+                                bh_metasweep(b.rank(), 0, instr).is_segment() &&
+                                sweep_info.size() > 0 &&
+                                sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192
+                                ){
                             out << "// ";
                         }
                         write_instr(scope, *b.getInstr(), out, true);
@@ -209,25 +212,33 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                 const LoopB &next_rank = b.getLoop();
 
                 // Check if there exist a segmented reduction, and if we are in the right rank.
+                size_t parallel_rank = thread_stack.size()-1;
                 bool inject_seg_reduce =
                     (sweep_info.size() > 0) &&
                     (sweep_info.front().sweep_axis() == b.rank()) &&
                     sweep_info.front().is_segment() &&
-                    next_rank.isInnermost();
+                    next_rank.isInnermost() &&
+                    sweep_info.front().left_operand.shape.begin()[parallel_rank] < 8192; // Hack to try avoid overcommiting local memory
+
+
+                // TODO: Detect if the seg_reduce doesn't use global memory. If it doesn't, skip the injection
 
                 // NOTE: If we create a config for it, segmented reductions can be disabled in the following if-statement:
                 if (inject_seg_reduce){
-                    vector<bh_metasweep> sweeps = {};
+                    vector<bh_metasweep> sweeps = {}; // The unique sweeps to handle
+                    vector<bh_metasweep> _sweeps = {}; // All sweeps in rank to handle write_back -- Calculated once, written to two different places.
                     size_t desired_size = sweep_info.front().left_operand.shape.back(); // Avoid merging 2 different ranks by mistake
                     for (bh_metasweep &s: sweep_info) {
                         if (s.rank == next_rank.rank && s.is_segment() && s.left_operand.shape.back() == desired_size){
+                            int base_id = symbols.baseID(s.left_operand.base);
+                            s.base_id = base_id; // To assure cache consistency
                             sweeps.push_back(s);
-                            cout << s.left_operand.shape << endl;
+                            _sweeps.push_back(s);
                         }
                     }
-
-                    // TODO: Filter out reductions in this rank, and keep them in a different vector. Inject them at the right places. Inject the rest into the call to writeBlock
-                    size_t parallel_rank = thread_stack.size()-1;
+                    std::sort (sweeps.begin(), sweeps.end()); // Assures cache consistency
+                    auto last = std::unique(sweeps.begin(), sweeps.end()); // To remove redundancy/reallocation
+                    sweeps.erase(last, sweeps.end());
 
                     size_t indent_level = 0;
                     INDENT; out << "{ // Segmented reduction injected.\n";
@@ -235,11 +246,12 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
 
                     // Max length is max segments pr. workgroup (not alot).
                     for (const bh_metasweep s: sweeps) {
-                        INDENT; out << "__local volatile " << writeType(s.type()) << " write_back" << s.id << "[" << s.left_operand.shape.begin()[parallel_rank] << "];\n";
-                        INDENT; out << "__local volatile " << writeType(s.type()) << " _a" << s.id << "[DIM1];\n";
+                        INDENT; out << "__local volatile " << writeType(s.type()) << " write_back" << s.base_id << "[" << s.left_operand.shape.begin()[parallel_rank] << "];\n";
+                        INDENT; out << "__local volatile " << writeType(s.type()) << " _a" << s.base_id << "[DIM1];\n";
+                        /* INDENT; out << "__local volatile " << writeType(s.type()) << " _a" << s.base_id << "[1024];\n"; // If autotuning, allocate max work-group size */
                     }
 
-                    INDENT; out << "size_t lid = get_local_id(0);\n";
+                    INDENT; out << "size_t lid = flat_local_id;\n";
 
                     INDENT; out << "size_t size = " << sweeps.front().left_operand.shape.back() << ";\n";
                     INDENT; out << "size_t segment_size = round_up_power2(size);\n";
@@ -254,7 +266,7 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "for (size_t segment_id = (lid/increment_size); segment_id < " << sweeps.front().left_operand.shape.begin()[parallel_rank] << "; segment_id += segments_per_workgroup){\n";
 
                     for (const bh_metasweep s: sweeps) {
-                        INDENT; out << "    " << writeType(s.type()) << " acc" << s.id << " = ";
+                        INDENT; out << "    " << writeType(s.type()) << " acc" << s.base_id << " = ";
                         jitk::sweep_identity(s.opcode, s.type()).pprint(out, true);
                         out << ";\n";
                     }
@@ -278,10 +290,10 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     }
                     out << "\n";
 
-                    for (size_t i=0; i<wanted_lookups.size(); i++) {
+                    for (size_t i=0; i<sweeps.size(); i++) {
                         const bh_metasweep s = sweeps[i];
                         string &var = returned_lookups[i];
-                        std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
+                        std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); }
 
                         INDENT; out << "        " << acc_id<< " = ";
                         s.write_op(out, acc_id, var);
@@ -289,12 +301,12 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     }
                     INDENT; out << "    }\n";
 
-                    for (int i=0; i<wanted_lookups.size(); i++) {
+                    for (int i=0; i<sweeps.size(); i++) {
                         const bh_metasweep s = sweeps[i];
                         string &var = returned_lookups[i];
-                        std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
+                        std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); }
 
-                        INDENT; out << "    _a" << s.id << "[lid] = " << acc_id << ";\n";
+                        INDENT; out << "    _a" << s.base_id << "[lid] = " << acc_id << ";\n";
                     }
 
                     INDENT; out << "    // Reduce segment\n";
@@ -303,25 +315,25 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "    for (size_t i=1; i<=increment_size/2; i<<=1){\n";
                     INDENT; out << "        if (running){\n";
                     INDENT; out << "            running = (sid%(i<<2) == 0);\n";
-                    for (int i=0; i<wanted_lookups.size(); i++) {
+                    for (int i=0; i<sweeps.size(); i++) {
                         const bh_metasweep s = sweeps[i];
-                        std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
+                        std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); }
 
                         INDENT; out << "            " << acc_id << " = ";
-                        s.write_op(out, acc_id, "_a" + to_string(s.id) + "[lid+i]");
+                        s.write_op(out, acc_id, "_a" + to_string(s.base_id) + "[lid+i]");
                         out << ";\n";
-                        INDENT; out << "            _a" << s.id << "[lid] = " << acc_id << ";\n";
+                        INDENT; out << "            _a" << s.base_id << "[lid] = " << acc_id << ";\n";
                     }
                     INDENT; out << "        }\n";
                     INDENT; out << "    }\n";
 
                     // Writeback to result array. Saves barriers at expense of some local memory, compared calling barrier now, and fetching across wavefronts.
                     INDENT; out << "    if (sid == 0){\n";
-                    for (int i=0; i<wanted_lookups.size(); i++) {
+                    for (int i=0; i<sweeps.size(); i++) {
                         const bh_metasweep s = sweeps[i];
-                        std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
+                        std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); }
 
-                        INDENT; out << "        write_back" << s.id << "[segment_id] = " << acc_id << ";\n";
+                        INDENT; out << "        write_back" << s.base_id << "[segment_id] = " << acc_id << ";\n";
                     }
                     INDENT; out << "    }\n";
                     INDENT; out << "    }\n";
@@ -329,26 +341,30 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     INDENT; out << "}\n";
                     INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n";
                     INDENT;
-                    if (b.rank()-1 > (int)parallelize_rank){
+                    if (b.rank()-1 > (int)parallelize_rank || ((int)b.rank())-3 > 0){
                         out << "if (redundant) {continue;}\n";
                     }
                     else{
-                        out << "if (redundant) {goto skip_block;}\n";
+                        out << "if (redundant) {return;}\n";
                     }
 
                     // Handling write-back to Bohriums scalar replacement
-                    for (int i=0; i<wanted_lookups.size(); i++) {
+                    for (int i=0; i<sweeps.size(); i++) {
                         const bh_metasweep s = sweeps[i];
                         string &var = returned_lookups[i];
-                        std::string acc_id; { std::stringstream t; t << "acc" << s.id; acc_id = t.str(); }
+                        std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); }
 
-                        const bh_view &view = s.right_operand;
-                        INDENT;
-                        scope.getName(view, out);
-                        if (scope.isArray(view)) {
-                            write_array_subscription(scope, view, out);
+                        for (const bh_metasweep _s: _sweeps){
+                            if (_s.base_id == s.base_id){
+                                const bh_view &view = _s.right_operand;
+                                INDENT;
+                                scope.getName(view, out);
+                                if (scope.isArray(view)) {
+                                    write_array_subscription(scope, view, out);
+                                }
+                                out << " = write_back" << s.base_id << "[lid];\n";
+                            }
                         }
-                        out << " = write_back" << s.id << "[lid];\n";
                     }
 
                     indent_level = 0;
@@ -362,11 +378,11 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     out << "}\n";
 
                     util::spaces(out, 4 + b.rank() * 4);
-                    if (((int)parallelize_rank)-3 > 0){
+                    if (b.rank()-1 > (int)parallelize_rank || ((int)b.rank())-3 > 0){
                         out << "if (redundant) {continue;}\n";
                     }
                     else {
-                        out << "if (redundant) {goto skip_block;}\n";
+                        out << "if (redundant) {return;}\n";
                     }
                 }
             }

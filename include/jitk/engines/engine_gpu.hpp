@@ -272,27 +272,23 @@ private:
         vector<const LoopB *> subBlocks = kernel.getLocalSubBlocks();
         std::cout << "Find sweep info in this: " << std::endl;
 
-        /* auto sweeps = rank0->getSweeps(); */
-        std::cout << "#############################\n";
         for (const LoopB *block: subBlocks) {
             // The sweeps are alone, if there are just as many instructions, as sweeps.
-            bool alone = true;//block->getLocalInstr().size() == block->getSweeps().size();
 
             find_sweep_info(*block, out); // Placed infront of the for-loop to have the sweeps in decending order
             for (std::shared_ptr<const bh_instruction> _sweep: block->getSweeps()) {
                 const bh_instruction &sweep = *_sweep.get();
                 size_t counter = goto_counter++;
-                std::cout << sweep.pprint() << " Counter: " << counter << "\n";
-                out.push_back(bh_metasweep(block->rank, alone, counter, sweep));
+                out.push_back(bh_metasweep(block->rank, counter, sweep));
             }
         }
-        std::cout << "-----------------------------\n";
     }
 
     void executeKernel(const LoopB &kernel,
                        const SymbolTable &symbols,
                        const std::vector<uint64_t> &thread_stack) {
         using namespace std;
+        goto_counter = 0;
         // We need a memory buffer on the device for each non-temporary array in the kernel
         const vector<bh_base *> &v = symbols.getParams();
         copyToDevice(set<bh_base *>(v.begin(), v.end()));

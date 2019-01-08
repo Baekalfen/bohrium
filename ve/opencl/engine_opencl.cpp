@@ -760,6 +760,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
 
     if (sweep_info.size() > 0) {
         // Hardcoding parameters is not compatible with auto-tuner
+
         if (autotuner) {
             ss << "#define KERNEL_" << thread_stack.size() << "D\n";
 
@@ -768,7 +769,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             }
         }
         else {
-            cout << "HREHREHER: " << thread_stack.size() << endl;
             const auto local_range = NDRanges(thread_stack).second;
             ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
             assert ((!sweep_info.back().is_scalar()) || (local_range.dimensions() == 1 && sweep_info.back().is_scalar())); // Don't allow multi-dim before we are ready
@@ -778,6 +778,37 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             }
         }
 
+        ss << "#ifndef DIM2" << endl;
+        ss << "#define DIM2 0" << endl;
+        ss << "#endif" << endl;
+
+        ss << "#ifndef DIM3" << endl;
+        ss << "#define DIM3 0" << endl;
+        ss << "#endif" << endl;
+
+
+        ss << "#ifdef KERNEL_1D" << endl;
+        ss << "#define flat_global_id get_global_id(0)" << endl;
+        ss << "#define flat_local_id get_local_id(0)" << endl;
+        ss << "#define flat_group_id get_group_id(0)" << endl;
+        ss << "#define flat_local_size DIM1" << endl;
+        ss << "#endif" << endl;
+
+        ss << "#ifdef KERNEL_2D" << endl;
+        ss << "#define flat_global_id (get_global_id(0) + get_global_size(0) * get_global_id(1))" << endl;
+        ss << "#define flat_local_id (get_local_id(0) + DIM1 * get_local_id(1))" << endl;
+        ss << "#define flat_group_id (get_group_id(0) + get_num_groups(0) * get_group_id(1))" << endl;
+        ss << "#define flat_local_size (DIM1 * DIM2)" << endl;
+        ss << "#endif" << endl;
+
+        ss << "#ifdef KERNEL_3D" << endl;
+        ss << "#define flat_global_id (get_global_id(0) + get_global_size(0) * get_global_id(1) + get_global_size(0) * get_global_size(1) * get_global_id(2))" << endl;
+        ss << "#define flat_local_id (get_local_id(0) + DIM1 * get_local_id(1) + DIM1 * DIM2 * get_local_id(2))" << endl;
+        ss << "#define flat_group_id (get_group_id(0) + get_num_groups(0) * get_group_id(1) + get_num_groups(0) * get_num_groups(1) * get_group_id(2))" << endl;
+        ss << "#define flat_local_size (DIM1 * DIM2 * DIM3)" << endl;
+        ss << "#endif" << endl;
+
+
         ss << "#ifdef cl_nv_pragma_unroll\n";
         ss << "#define NVIDIA\n";
         ss << "#define wavefront_size 32\n";
@@ -786,7 +817,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "#define wavefront_size 64\n";
         ss << "#endif\n";
 
-        if (sweep_info.front().is_segment() && sweep_info.front().alone) {
+        if (sweep_info.front().is_segment()) {
             ss << "//Is segment!\n";
             ss << "inline size_t round_up_power2(size_t number){\n";
             ss << "    // https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2\n";
@@ -865,6 +896,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "__DATA_TYPE__ element;\n";
     }
 
+    util::spaces(ss, 4);
     ss << "bool redundant = false;\n";
 
     // Write the IDs and overflow guards of the threaded blocks
@@ -878,11 +910,11 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 if (is_scalar_reduction && i == 0){
                     // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
                     ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
-                        << "if (g" << i << " < " << thread_stack[i] << ") { goto exit; } // Prevent overflow in calculations, but keep thread for reduction\n";
+                        << "if (g" << i << " < " << thread_stack[i] << ") { return; } // Prevent overflow in calculations, but keep thread for reduction\n";
                 }
                 else{
                     ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
-                        << "if (g" << i << " >= " << thread_stack[i] << ") { goto exit; } // Prevent overflow\n";
+                        << "if (g" << i << " >= " << thread_stack[i] << ") { return; } // Prevent overflow\n";
                 }
             }
         } else {
@@ -890,7 +922,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             util::spaces(ss, 4);
             ss << "// Optimizing Access Pattern!\n";
 
-            // WARN: These has to be separated because of the goto!!!
             for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
                 util::spaces(ss, 4);
                 if (is_scalar_reduction){
@@ -918,6 +949,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                     break;
                 }
             }
+            inject_seg_reduce &= sweep_info.size() > 0 && sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192;
 
             size_t thrdstack = thread_stack.size();
             size_t dims = thread_stack.size();
@@ -950,7 +982,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                     }
                     else{
                         ss << "if (g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") { ";
-                        ss << "goto skip_block; } // Prevent overflow\n";
+                        ss << "return; } // Prevent overflow\n";
                     }
                 }
             }
@@ -964,7 +996,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
     if (not thread_stack.empty() && (sweep_info.size() > 0) && sweep_info.back().is_scalar()){
         // Inject neutral element, when there is no data in global memory to read
         ss << "} else {\n";
-        ss << "skip_block: ;\n";
         util::spaces(ss, 8);
         ss << "element = NEUTRAL;\n";
         util::spaces(ss, 4);
@@ -973,9 +1004,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         // Call special rank0 preprocessing for both reduce and scan
         util::spaces(ss, 4);
         ss << "reduce_2pass_preprocess(element, a, res);\n";
-    }
-    else{
-        ss << "skip_block: ;\n";
     }
     ss << "}\n\n";
 }

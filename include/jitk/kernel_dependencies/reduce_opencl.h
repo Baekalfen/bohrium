@@ -29,36 +29,6 @@ If not, see <http://www.gnu.org/licenses/>.
 
 #define OPERATOR4(a,b,c,d) (OPERATOR(a, OPERATOR(b, OPERATOR(c, d))))
 
-#ifndef DIM2
-#define DIM2 0
-#endif
-
-#ifndef DIM3
-#define DIM3 0
-#endif
-
-
-#ifdef KERNEL_1D
-#define flat_global_id get_global_id(0)
-#define flat_local_id get_local_id(0)
-#define flat_group_id get_group_id(0)
-#define flat_local_size DIM1
-#endif
-
-#ifdef KERNEL_2D
-#define flat_global_id (get_global_id(0) + get_global_size(0) * get_global_id(1))
-#define flat_local_id (get_local_id(0) + DIM1 * get_local_id(1))
-#define flat_group_id (get_group_id(0) + get_num_groups(0) * get_group_id(1))
-#define flat_local_size (DIM1 * DIM2)
-#endif
-
-#ifdef KERNEL_3D
-#define flat_global_id (get_global_id(0) + get_global_size(0) * get_global_id(1) + get_global_size(0) * get_global_size(1) * get_global_id(2))
-#define flat_local_id (get_local_id(0) + DIM1 * get_local_id(1) + DIM1 * DIM2 * get_local_id(2))
-#define flat_group_id (get_group_id(0) + get_num_groups(0) * get_group_id(1) + get_num_groups(0) * get_num_groups(1) * get_group_id(2))
-#define flat_local_size (DIM1 * DIM2 * DIM3)
-#endif
-
 inline __DATA_TYPE__ reduce_wave(size_t lid, __DATA_TYPE__ acc, __local volatile __DATA_TYPE__ *a){
     bool running = ((lid%2) == 0);
     for (size_t i=1; i<=wavefront_size/2; i<<=1){

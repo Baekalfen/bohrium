@@ -35,18 +35,19 @@ struct bh_metasweep {
     bh_view left_operand;
     bh_view right_operand;
     int axis;
-    bool alone;
     size_t id;
+    int64_t origin_id;
+    int64_t base_id = -1;
 
-    bh_metasweep(size_t rank, bool alone, size_t id, const bh_instruction &sweep) : rank(rank) {
+    bh_metasweep(size_t rank, size_t id, const bh_instruction &sweep) : rank(rank) {
         opcode = sweep.opcode;
         assert (bh_opcode_is_sweep(opcode));
         axis = sweep.sweep_axis();
         auto views = sweep.getViews();
         left_operand = views.back(); // I know these are reversed semantically.
         right_operand = views.front();
-        this->alone = alone;
         this->id = id;
+        this->origin_id = sweep.origin_id;
     }
 
     bool is_segment() const {
@@ -126,8 +127,12 @@ struct bh_metasweep {
             ss << " ";
             ss << v.pprint(python_notation);
         }
+        ss << " " << id;
         return ss.str();
     }
+
+    bool operator< (bh_metasweep a) { return (origin_id>a.origin_id);}
+    bool operator== (bh_metasweep a) { return (base_id==a.base_id);}
 };
 
 

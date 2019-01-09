@@ -247,8 +247,7 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     // Max length is max segments pr. workgroup (not alot).
                     for (const bh_metasweep s: sweeps) {
                         INDENT; out << "__local volatile " << writeType(s.type()) << " write_back" << s.base_id << "[" << s.left_operand.shape.begin()[parallel_rank] << "];\n";
-                        INDENT; out << "__local volatile " << writeType(s.type()) << " _a" << s.base_id << "[DIM1];\n";
-                        /* INDENT; out << "__local volatile " << writeType(s.type()) << " _a" << s.base_id << "[1024];\n"; // If autotuning, allocate max work-group size */
+                        INDENT; out << "__local volatile " << writeType(s.type()) << " _a" << s.base_id << "[SCRATCHPAD_MEM];\n";
                     }
 
                     INDENT; out << "size_t lid = flat_local_id;\n";

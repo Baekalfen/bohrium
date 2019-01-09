@@ -258,19 +258,19 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
     int dims = b.size();
     switch (dims) {
         case 1: {
-            const auto gsize_and_lsize = work_ranges(dx != FIXME ? dx : work_group_size_1dx, b[0]);
+            const auto gsize_and_lsize = work_ranges(dx != FIXME ? dx : 128, b[0]);
             return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
         }
         case 2: {
-            const auto gsize_and_lsize_x = work_ranges(dx != FIXME ? dx : work_group_size_2dx, b[0]);
-            const auto gsize_and_lsize_y = work_ranges(dy != FIXME ? dy : work_group_size_2dy, b[1]);
+            const auto gsize_and_lsize_x = work_ranges(dx != FIXME ? dx : 128, b[0]);
+            const auto gsize_and_lsize_y = work_ranges(dy != FIXME ? dy : 1, b[1]);
             return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first),
                              cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second));
         }
         case 3: {
-            const auto gsize_and_lsize_x = work_ranges(dx != FIXME ? dx : work_group_size_3dx, b[0]);
-            const auto gsize_and_lsize_y = work_ranges(dy != FIXME ? dy : work_group_size_3dy, b[1]);
-            const auto gsize_and_lsize_z = work_ranges(dz != FIXME ? dz : work_group_size_3dz, b[2]);
+            const auto gsize_and_lsize_x = work_ranges(dx != FIXME ? dx : 128, b[0]);
+            const auto gsize_and_lsize_y = work_ranges(dy != FIXME ? dy : 1, b[1]);
+            const auto gsize_and_lsize_z = work_ranges(dz != FIXME ? dz : 1, b[2]);
             return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first),
                              cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
         }
@@ -767,6 +767,8 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             for (size_t i = 0; i < thread_stack.size(); i++){
                 ss << "#define DIM" << i+1 << " get_local_size(" << i << ")\n";
             }
+
+            ss << "#define SCRATCHPAD_MEM 1024\n"; // We cannot allocate local memory, if the size isn't static. This should be the max work-group size.
         }
         else {
             const auto local_range = NDRanges(thread_stack).second;
@@ -776,6 +778,8 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             for (size_t i = 0; i < local_range.dimensions(); i++){
                 ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n";
             }
+
+            ss << "#define SCRATCHPAD_MEM DIM1\n";
         }
 
         ss << "#ifndef DIM2" << endl;
@@ -785,7 +789,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "#ifndef DIM3" << endl;
         ss << "#define DIM3 0" << endl;
         ss << "#endif" << endl;
-
 
         ss << "#ifdef KERNEL_1D" << endl;
         ss << "#define flat_global_id get_global_id(0)" << endl;

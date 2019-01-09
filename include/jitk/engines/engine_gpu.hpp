@@ -146,7 +146,7 @@ public:
             // We can skip a lot of steps if the kernel does no computation
             const bool kernel_is_computing = not kernel.isSystemOnly();
 
-            cout << "\n\nUNIQUEID handleExecution \n" << kernel << "UNIQUEID handleExecution: Done." << endl;
+            /* cout << "\n\nUNIQUEID handleExecution \n" << kernel << "UNIQUEID handleExecution: Done." << endl; */
 
             // Find the parallel blocks
             std::vector<uint64_t> thread_stack;
@@ -171,10 +171,10 @@ public:
 
             // We might have to offload the execution to the CPU
             if (thread_stack.empty()) {
-                cout << "CPU OffLoading" << endl;
+                /* cout << "CPU OffLoading" << endl; */
                 cpuOffload(comp, bhir, kernel, symbols);
             } else {
-                cout << "GPGPU OffLoading" << endl;
+                /* cout << "GPGPU OffLoading" << endl; */
                 // Let's execute the kernel
                 if (kernel_is_computing) {
                     executeKernel(kernel, symbols, thread_stack);
@@ -270,7 +270,7 @@ private:
     void find_sweep_info(const LoopB &kernel, std::vector<bh_metasweep> &out){
         std::vector<bh_metasweep> sweep_info = {};
         vector<const LoopB *> subBlocks = kernel.getLocalSubBlocks();
-        std::cout << "Find sweep info in this: " << std::endl;
+        /* std::cout << "Find sweep info in this: " << std::endl; */
 
         for (const LoopB *block: subBlocks) {
             // The sweeps are alone, if there are just as many instructions, as sweeps.
@@ -303,10 +303,10 @@ private:
         // Determine if there is a vector-reduction kernel.
         std::vector<bh_metasweep> sweep_info = {};
         find_sweep_info(kernel, sweep_info);
-        std::cout << "sweep_info: " << sweep_info.size() << endl;
-        for (const bh_metasweep &metasweep: sweep_info) {
-            cout << metasweep.pprint(true) << "\n";
-        }
+        /* std::cout << "sweep_info: " << sweep_info.size() << endl; */
+        /* for (const bh_metasweep &metasweep: sweep_info) { */
+        /*     cout << metasweep.pprint(true) << "\n"; */
+        /* } */
 
         const auto lookup = codegen_cache.lookup(kernel, symbols);
         if (not lookup.first.empty()) {

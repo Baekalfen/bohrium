@@ -266,9 +266,8 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const jitk::LoopB block, u
 
     /* cout << "LOOKKADOASKOSDF " << comp.config.defaultGet<cl_ulong>("custom_thingy", 123) << endl; */
     const auto &b = thread_stack;
-    cout << "Block to analyze: " << b.size() << endl << block;
-    cout << b.size() << ": " << b[0] << " " << b[1] << " " << b[2] << " " << endl;
-    cout << "KERNEL12345XXX"<<endl;
+    cout << "UNIQUEID kernel_name " << kernel_name + "_dx " << dx << " " << dy << " " << dz << endl;
+    cout << "UNIQUEID Threadstack " << b.size() << ": " << b[0] << " " << b[1] << " " << b[2] << " " << endl;
 
     int dims = b.size();
     switch (dims) {
@@ -466,9 +465,8 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     auto start_exec = chrono::steady_clock::now();
     auto f = ranges.first;
     auto s = ranges.second;
-    std::cout << "Kernel params:" << std::endl
-        << "Total work: " << f.dimensions() << " " << f[0] << " " << f[1] << " " << f[2] << std::endl
-        << "Work group: " << f.dimensions() << " " << s[0] << " " << s[1] << " " << s[2] << std::endl << std::endl;
+    cout << "UNIQUEID Totalwork " << f.dimensions() << " " << f[0] << " " << f[1] << " " << f[2] << endl
+         << "UNIQUEID Workgroup " << f.dimensions() << " " << s[0] << " " << s[1] << " " << s[2] << endl << endl;
     queue.enqueueNDRangeKernel(opencl_kernel, cl::NullRange, ranges.first, ranges.second);
     queue.finish();
     auto texec = chrono::steady_clock::now() - start_exec;

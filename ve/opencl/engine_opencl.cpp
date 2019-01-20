@@ -233,24 +233,39 @@ pair<uint32_t, uint32_t> work_ranges(uint64_t work_group_size, int64_t block_siz
     return make_pair(gsize, lsize);
 }
 }
+pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const std::vector<uint64_t> &thread_stack, uint64_t hash) const {
+    stringstream kernel_hash;
+    kernel_hash << hex << hash;
+    auto kernel_name = kernel_hash.str();
 
-pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &thread_stack) const {
+    const cl_ulong FIXME = -1;
+
+    const auto dx = comp.config.defaultGet<cl_ulong>(kernel_name + "_dx", FIXME);
+    const auto dy = comp.config.defaultGet<cl_ulong>(kernel_name + "_dy", FIXME);
+    const auto dz = comp.config.defaultGet<cl_ulong>(kernel_name + "_dz", FIXME);
+    cout << kernel_name + "_dx " << dx << " " << dy << " " << dz << endl;
+
+    /* cout << "LOOKKADOASKOSDF " << comp.config.defaultGet<cl_ulong>("custom_thingy", 123) << endl; */
     const auto &b = thread_stack;
-    switch (b.size()) {
+    cout << "UNIQUEID kernel_name " << kernel_name + "_dx " << dx << " " << dy << " " << dz << endl;
+    cout << "UNIQUEID Threadstack " << b.size() << ": " << b[0] << " " << b[1] << " " << b[2] << " " << endl;
+
+    int dims = b.size();
+    switch (dims) {
         case 1: {
-            const auto gsize_and_lsize = work_ranges(work_group_size_1dx, b[0]);
+            const auto gsize_and_lsize = work_ranges(dx != FIXME ? dx : work_group_size_1dx, b[0]);
             return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
         }
         case 2: {
-            const auto gsize_and_lsize_x = work_ranges(work_group_size_2dx, b[0]);
-            const auto gsize_and_lsize_y = work_ranges(work_group_size_2dy, b[1]);
+            const auto gsize_and_lsize_x = work_ranges(dx != FIXME ? dx : work_group_size_2dx, b[0]);
+            const auto gsize_and_lsize_y = work_ranges(dy != FIXME ? dy : work_group_size_2dy, b[1]);
             return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first),
                              cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second));
         }
         case 3: {
-            const auto gsize_and_lsize_x = work_ranges(work_group_size_3dx, b[0]);
-            const auto gsize_and_lsize_y = work_ranges(work_group_size_3dy, b[1]);
-            const auto gsize_and_lsize_z = work_ranges(work_group_size_3dz, b[2]);
+            const auto gsize_and_lsize_x = work_ranges(dx != FIXME ? dx : work_group_size_3dx, b[0]);
+            const auto gsize_and_lsize_y = work_ranges(dy != FIXME ? dy : work_group_size_3dy, b[1]);
+            const auto gsize_and_lsize_z = work_ranges(dz != FIXME ? dz : work_group_size_3dz, b[2]);
             return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first),
                              cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
         }
@@ -409,7 +424,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     /* return buf; */
 
     /* cl::Buffer *buf = createBuffer(base); */
-    const auto ranges = NDRanges(thread_stack);
+    const auto ranges = NDRanges(thread_stack, hash);
     size_t local_size = ranges.second.local_size();
     /* size_t work_groups = ranges.first.dim(0) / ranges.second.dim(0); // TODO: Multi-dim kernels! */
     size_t work_groups = ranges.first.work_groups(ranges.second);
@@ -434,6 +449,12 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
     }
 
     auto start_exec = chrono::steady_clock::now();
+
+    auto f = ranges.first;
+    auto s = ranges.second;
+    cout << "UNIQUEID Totalwork " << f.dimensions() << " " << f[0] << " " << f[1] << " " << f[2] << endl
+        << "UNIQUEID Workgroup " << f.dimensions() << " " << s[0] << " " << s[1] << " " << s[2] << endl << endl;
+
     queue.enqueueNDRangeKernel(opencl_kernel, cl::NullRange, ranges.first, ranges.second);
 
     // Call a post-reduction kernel, which finalizes the reduction
@@ -446,7 +467,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
 
         if (bh_opcode_is_accumulate(std::get<0>(sweep_info))){
             sweep_local_size = local_size;
-            post_ranges = NDRanges(thread_stack);
+            post_ranges = NDRanges(thread_stack,hash);
             post_sweep = cl::Kernel(program, "scan_2pass_postprocess");
 
             post_sweep.setArg(i++, *getBuffer(std::get<2>(sweep_info).base)); // Output array
@@ -622,12 +643,16 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "#define __DATA_TYPE__ " << writeType(std::get<1>(sweep_info).base->type) <<"\n";
 
 
-        const auto local_range = NDRanges(thread_stack).second;
+        /* const auto local_range = NDRanges(thread_stack).second; */
 
-        ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
-        for (size_t i = 0; i < local_range.dimensions(); i++){
-            ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n";
+        ss << "#define KERNEL_" << thread_stack.size() << "D\n";
+        for (size_t i = 0; i < thread_stack.size(); i++){
+            ss << "#define DIM" << i+1 << " get_local_id(" << i << ")\n";
         }
+        /* ss << "#define KERNEL_" << local_range.dimensions() << "D\n"; */
+        /* for (size_t i = 0; i < local_range.dimensions(); i++){ */
+        /*     ss << "#define DIM" << i+1 << " " << local_range.dim(i) << "\n"; */
+        /* } */
 
         ss << "#include <kernel_dependencies/reduce_opencl.h>\n";
     }

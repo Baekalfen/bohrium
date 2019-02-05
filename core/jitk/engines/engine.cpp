@@ -380,7 +380,7 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     if (b.rank()-1 > (int)parallelize_rank || ((int)b.rank())-3 > 0){
                         out << "if (redundant) {continue;}\n";
                     }
-                    else {
+                    else if (b.rank() > 0){
                         out << "if (redundant) {return;}\n";
                     }
                 }

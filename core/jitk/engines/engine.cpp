@@ -130,9 +130,17 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     } else if (scope.isScalarReplaced(view)) {
                         util::spaces(out, 8 + kernel.rank * 4);
                         scope.writeDeclaration(view, writeType(view.base->type), out);
+
+                        // d4_reduce_nd_transposed Trips over this?
+                        /* if (opencl){ */
+                        /*     out << "if (!redundant) {"; */
+                        /* } */
                         out << " " << scope.getName(view) << " = a" << symbols.baseID(view.base);
                         write_array_subscription(scope, view, out);
                         out << ";";
+                        /* if (opencl){ */
+                        /*     out << "}"; */
+                        /* } */
                         out << "\n";
 
                         // TODO: Also don't allocate the array
@@ -197,6 +205,8 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     } else{
                         util::spaces(out, 4 + b.rank() * 4);
                         const bh_instruction instr = *b.getInstr();
+
+                        // Comment out reduction inside segmented reduction
                         if (bh_opcode_is_reduction(instr.opcode) &&
                                 kernel.isInnermost() &&
                                 bh_metasweep(b.rank(), 0, instr).is_segment() &&
@@ -204,6 +214,9 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                                 sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192
                                 ){
                             out << "// ";
+                        }
+                        else if(lookups.size() == 0) {
+                            out << "if (!redundant) ";
                         }
                         write_instr(scope, *b.getInstr(), out, true);
                     }
@@ -339,13 +352,12 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
 
                     INDENT; out << "}\n";
                     INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n";
-                    INDENT;
-                    if (b.rank()-1 > (int)parallelize_rank || ((int)b.rank())-3 > 0){
-                        out << "if (redundant) {continue;}\n";
-                    }
-                    else{
-                        out << "if (redundant) {return;}\n";
-                    }
+                    /* if (b.rank()-1 > (int)parallelize_rank || ((int)b.rank())-3 > 0){ */
+                    /*     out << "if (redundant) {continue;}\n"; */
+                    /* } */
+                    /* else{ */
+                    /*     out << "if (redundant) {return;}\n"; */
+                    /* } */
 
                     // Handling write-back to Bohriums scalar replacement
                     for (int i=0; i<sweeps.size(); i++) {
@@ -376,13 +388,15 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     util::spaces(out, 4 + b.rank() * 4);
                     out << "}\n";
 
-                    util::spaces(out, 4 + b.rank() * 4);
-                    if (b.rank()-1 > (int)parallelize_rank || ((int)b.rank())-3 > 0){
-                        out << "if (redundant) {continue;}\n";
-                    }
-                    else if (b.rank() > 0){
-                        out << "if (redundant) {return;}\n";
-                    }
+                    out << "// " << b.rank() << " " << parallelize_rank << endl;
+                    /* if (b.rank()-1 > (int)parallelize_rank || ((int)b.rank())-3 > 0){ */
+                    /*     util::spaces(out, 4 + b.rank() * 4); */
+                    /*     out << "if (redundant) {continue;}\n"; */
+                    /* } */
+                    /* else if (b.rank() > 0){ */
+                    /*     util::spaces(out, 4 + b.rank() * 4); */
+                    /*     out << "if (redundant) {return;}\n"; */
+                    /* } */
                 }
             }
         }
@@ -417,6 +431,9 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
     // Let's copy the scalar replaced reduction outputs back to the original array
     for (const bh_view *view: scalar_replaced_to_write_back) {
         util::spaces(out, 8 + kernel.rank * 4);
+        if (opencl){
+            out << "if (!redundant) ";
+        }
         out << "a" << symbols.baseID(view->base);
         write_array_subscription(scope, *view, out, true);
         out << " = ";

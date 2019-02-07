@@ -297,6 +297,13 @@ bool LoopB::validation() const {
 }
 
 uint64_t LoopB::localThreading() const {
+    // We do not support `np.add.accumulate(a, out=b); res = b.copy()`, as we need to stop the copy from being fused or find the destination for postprocess
+    for (const InstrPtr instr : _sweeps) {
+        if (bh_opcode_is_accumulate(instr->opcode)){
+            return 0;
+        }
+    }
+
     // We can parallelize, if there is no sweep, or one sweep in the outer-most axis
     if (not isSystemOnly() and (_sweeps.size() == 0 || ((rank == 0) and (_sweeps.size() == 1)))) {
         assert (size >= 0);

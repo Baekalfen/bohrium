@@ -858,7 +858,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                     ss << ops[0] << " && " << ops[1];
                     break;
                 case BH_LOGICAL_XOR_REDUCE:
-                    ss << ops[0] << " != !" << ops[1];
+                    ss << "!" << ops[0] << " != !" << ops[1];
                     break;
                 case BH_MAXIMUM_REDUCE:
                     ss <<  "max(" << ops[0] << ", " << ops[1] << ")";

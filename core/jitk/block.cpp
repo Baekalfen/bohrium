@@ -26,6 +26,8 @@ If not, see <http://www.gnu.org/licenses/>.
 #include <jitk/instruction.hpp>
 #include <jitk/codegen_util.hpp>
 #include <jitk/iterator.hpp>
+#include <bh_instruction.hpp>
+#include <bh_metasweep.hpp>
 
 using namespace std;
 
@@ -299,7 +301,7 @@ bool LoopB::validation() const {
 uint64_t LoopB::localThreading() const {
     // We do not support `np.add.accumulate(a, out=b); res = b.copy()`, as we need to stop the copy from being fused or find the destination for postprocess
     for (const InstrPtr instr : _sweeps) {
-        if (bh_opcode_is_accumulate(instr->opcode)){
+        if (!bh_metasweep(0, 0, *instr).is_scalar()){
             return 0;
         }
     }

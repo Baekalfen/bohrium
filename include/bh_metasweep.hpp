@@ -62,7 +62,8 @@ struct bh_metasweep {
             bh_opcode_is_reduction(opcode) &&
             (right_operand.ndim == 1) &&
             (right_operand.shape[0] == 1) &&
-            (left_operand.ndim == 1);
+            (left_operand.ndim == 1) &&
+            !bh_type_is_complex(left_operand.base->type);
     }
 
     bh_type type() const{

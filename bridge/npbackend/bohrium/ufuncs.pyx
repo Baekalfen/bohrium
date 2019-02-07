@@ -370,14 +370,20 @@ class Ufunc(object):
             return func(ary, axis=axis, out=out)
 
         # Make sure that 'axis' is a list of dimensions to reduce
+        doTranspose = True
         if axis is None:
             # We reduce all dimensions
             axis = range(ary.ndim)
+            doTranspose = False
         elif np.isscalar(axis):
             # We reduce one dimension
+            doTranspose = (axis+1) != ary.ndim
             axis = [axis]
         else:
             # We reduce multiple dimensions
+            doTranspose = \
+                    (len(axis) == 1 and (axis[0]+1) != ary.ndim) or\
+                    (len(axis) > 1 and not all(axis[i]+1 == axis[i+1] for i in xrange(len(axis)-1)))
             axis = list(axis)
 
         # Check for out of bounds and convert negative axis values
@@ -398,10 +404,10 @@ class Ufunc(object):
             ary = array_create.array(ary, dtype=np.uint64)
 
         # Transposing the reductions, to move the axes to the back for optimal GPGPU access pattern
-        indices = range(ary.ndim)
-        # ary = ary.transpose(filter(lambda x: not x in axis, indices) + list(reversed(sorted(axis)))) # TODO: Why reverse, when we got segmented reductions? It also messes up the fuser!
-        ary = ary.transpose(filter(lambda x: not x in axis, indices) + list((sorted(axis))))
-        axis = indices[-len(axis):]
+        if doTranspose:
+            indices = range(ary.ndim)
+            ary = ary.transpose(filter(lambda x: not x in axis, indices) + list((sorted(axis))))
+            axis = indices[-len(axis):]
 
         if len(axis) == 1:
             # One axis reduction we can handle directly
@@ -432,14 +438,14 @@ class Ufunc(object):
             return out
         else:
             # If we are reducing to a scalar across several dimensions, reshape to a vector
-            if ary.ndim == len(axis) and ary.flags['C_CONTIGUOUS']:
-                ary = ary.flatten(always_copy=False)
-                ary = self.reduce(ary)
-            else:
+            # if ary.ndim == len(axis) and ary.flags['C_CONTIGUOUS']:
+            #     ary = ary.flatten(always_copy=False)
+            #     ary = self.reduce(ary)
+            # else:
                 # Let's reduce the last axis
                 # TODO: Flatten as many inner dimensions as possible!
-                ary = self.reduce(ary, axis[-1])
-                ary = self.reduce(ary, axis[:-1])
+            ary = self.reduce(ary, axis[-1])
+            ary = self.reduce(ary, axis[:-1])
             # # Let's sort the axis indexes by their stride
             # # We use column major when a GPU is in the stack
             # column_major = bh_info.is_opencl_in_stack() or bh_info.is_cuda_in_stack()

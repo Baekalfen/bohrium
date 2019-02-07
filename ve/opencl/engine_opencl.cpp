@@ -913,7 +913,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 if (is_scalar_reduction && i == 0){
                     // NOTE: We can't just return, as this workgroup might be the last to finish, and has to finalize the reduction
                     ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "
-                        << "if (g" << i << " < " << thread_stack[i] << ") { return; } // Prevent overflow in calculations, but keep thread for reduction\n";
+                        << "if (g" << i << " < " << thread_stack[i] << ") { // Prevent overflow in calculations, but keep thread for reduction\n";
                 }
                 else{
                     ss << "const " << writeType(bh_type::UINT32) << " g" << i << " = get_global_id(" << i << "); "

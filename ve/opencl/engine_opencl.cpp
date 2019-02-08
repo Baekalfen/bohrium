@@ -758,7 +758,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "#include <kernel_dependencies/random123_opencl.h>\n";
     }
 
-    if (sweep_info.size() > 0) {
+    if (sweep_info.size() > 0 and (sweep_info.front().is_segment() or sweep_info.back().is_scalar())) {
         // Hardcoding parameters is not compatible with auto-tuner
 
         if (autotuner) {

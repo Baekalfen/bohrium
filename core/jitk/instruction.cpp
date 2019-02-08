@@ -541,7 +541,6 @@ void write_operation(const bh_instruction &instr, const vector<string> &ops, str
                 // csgn(z) = { -1         if Re(z) < 0
                 //             sgn(Im(z)) if Re(z) = 0
                 const char *ctype = (t0 == bh_type::COMPLEX64 ? "float" : "double");
-                out << "{";
                 if (opencl) {
                     out << ctype << " real = " << ops[1] << ".x; \n";
                     out << ctype << " imag = " << ops[1] << ".y; \n";
@@ -560,7 +559,7 @@ void write_operation(const bh_instruction &instr, const vector<string> &ops, str
                 write_sign_function("imag", out);
                 out << " : ";
                 write_sign_function("real", out);
-                out << ");}";
+                out << ");";
             } else {
                 out << ops[0] << " = ";
                 write_sign_function(ops[1], out);
@@ -581,7 +580,6 @@ void write_operation(const bh_instruction &instr, const vector<string> &ops, str
             cerr << "Instruction \"" << instr << "\" not supported\n";
             throw runtime_error("Instruction not supported.");
     }
-    out << "\n";
 }
 
 // Print the maximum value of 'dtype'

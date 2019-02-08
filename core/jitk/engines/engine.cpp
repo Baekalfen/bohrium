@@ -214,11 +214,14 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                                 sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192
                                 ){
                             out << "// ";
+                            write_instr(scope, *b.getInstr(), out, true);
+                            out << "\n";
                         }
                         else if(lookups.size() == 0) {
-                            out << "if (!redundant) ";
+                            out << "if (!redundant) {";
+                            write_instr(scope, *b.getInstr(), out, true);
+                            out << "}\n";
                         }
-                        write_instr(scope, *b.getInstr(), out, true);
                     }
                 }
             } else {

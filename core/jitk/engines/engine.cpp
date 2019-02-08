@@ -222,6 +222,9 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                             write_instr(scope, *b.getInstr(), out, true);
                             out << "}\n";
                         }
+                        else {
+                            write_instr(scope, *b.getInstr(), out, true);
+                        }
                     }
                 }
             } else {

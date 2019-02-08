@@ -936,14 +936,6 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                 }
             }
 
-            // TODO: It's ok to have size()>1 as long as only one rank has the seg_reduce and there is an scalar reduction
-            /* ss << "// Reason: " << sweep_info.size() << ", " << sweep_info.front().is_segment() << ", " << sweep_info.front().sweep_axis() << ", " << thread_stack.size() << endl; */
-            /* bool inject_seg_reduce = */
-                /* (sweep_info.size() > 0) && */
-                /* (sweep_info.size() == 1) && */
-                /* sweep_info.front().alone && */
-                /* sweep_info.front().is_segment() && */
-                /* (sweep_info.front().sweep_axis() == thread_stack.size()); */
 
             bool inject_seg_reduce = false;
             for (unsigned int i=0; i < sweep_info.size(); ++i) {

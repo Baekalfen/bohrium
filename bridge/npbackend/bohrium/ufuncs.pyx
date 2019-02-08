@@ -427,7 +427,7 @@ class Ufunc(object):
             # NumPy compatibility: when the axis dimension size is zero NumPy just returns the neutral value
             if ary.shape[axis] == 0:
                 tmp[...] = getattr(getattr(np, self.info['name']), "identity")
-            elif ary.shape[axis] == 1: # Single element, no need to reduce
+            elif ary.ndim == 1 and ary.shape[0] == 1: # Single element, no need to reduce
                 tmp[...] = ary
             else:
                 _bh.ufunc(_info.op["%s_reduce" % self.info['name']]['id'], (tmp, ary, np.int64(axis)))

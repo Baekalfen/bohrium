@@ -32,7 +32,6 @@ void write_instr(const Scope &scope, const bh_instruction &instr, std::stringstr
 
 
 // Bypass scope and other autonomy to get bare instruction source code
-/* void write_operation(const bh_instruction &instr, const std::vector<std::string> &ops, std::stringstream &out, bool opencl); */
 void write_other_instr(const Scope &scope, const bh_instruction &instr, std::stringstream &out, bool opencl = false);
 
 // Return the identity value of an sweep operation

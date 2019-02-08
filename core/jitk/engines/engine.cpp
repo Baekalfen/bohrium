@@ -215,16 +215,16 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                                 ){
                             out << "// ";
                             write_instr(scope, *b.getInstr(), out, true);
-                            out << "\n";
                         }
                         else if(lookups.size() == 0) {
                             out << "if (!redundant) {";
                             write_instr(scope, *b.getInstr(), out, true);
-                            out << "}\n";
+                            out << "}";
                         }
                         else {
                             write_instr(scope, *b.getInstr(), out, true);
                         }
+                        out << "\n";
                     }
                 }
             } else {
@@ -422,6 +422,7 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     }
                     util::spaces(out, 4 + b.rank() * 4);
                     write_instr(scope, *instr, out);
+                    out << "\n";
                 }
             } else {
                 util::spaces(out, 4 + b.rank() * 4);

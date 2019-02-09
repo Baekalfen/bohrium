@@ -370,20 +370,14 @@ class Ufunc(object):
             return func(ary, axis=axis, out=out)
 
         # Make sure that 'axis' is a list of dimensions to reduce
-        doTranspose = True
         if axis is None:
             # We reduce all dimensions
             axis = range(ary.ndim)
-            doTranspose = False
         elif np.isscalar(axis):
             # We reduce one dimension
-            doTranspose = (axis+1) != ary.ndim
             axis = [axis]
         else:
             # We reduce multiple dimensions
-            doTranspose = \
-                    (len(axis) == 1 and (axis[0]+1) != ary.ndim) or\
-                    (len(axis) > 1 and not all(axis[i]+1 == axis[i+1] for i in xrange(len(axis)-1)))
             axis = list(axis)
 
         # Check for out of bounds and convert negative axis values
@@ -404,7 +398,7 @@ class Ufunc(object):
             ary = array_create.array(ary, dtype=np.uint64)
 
         # Transposing the reductions, to move the axes to the back for optimal GPGPU access pattern
-        if doTranspose:
+        if ary.flags['C_CONTIGUOUS']:
             indices = range(ary.ndim)
             ary = ary.transpose(filter(lambda x: not x in axis, indices) + list((sorted(axis))))
             axis = indices[-len(axis):]

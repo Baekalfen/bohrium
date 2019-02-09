@@ -440,14 +440,14 @@ class Ufunc(object):
             return out
         else:
             # If we are reducing to a scalar across several dimensions, reshape to a vector
-            # if ary.ndim == len(axis) and ary.flags['C_CONTIGUOUS']:
-            #     ary = ary.flatten(always_copy=False)
-            #     ary = self.reduce(ary)
-            # else:
+            if ary.ndim == len(axis) and ary.flags['C_CONTIGUOUS']:
+                ary = ary.flatten(always_copy=False)
+                ary = self.reduce(ary)
+            else:
                 # Let's reduce the last axis
                 # TODO: Flatten as many inner dimensions as possible!
-            ary = self.reduce(ary, axis[-1])
-            ary = self.reduce(ary, axis[:-1])
+                ary = self.reduce(ary, axis[-1])
+                ary = self.reduce(ary, axis[:-1])
             # # Let's sort the axis indexes by their stride
             # # We use column major when a GPU is in the stack
             # column_major = bh_info.is_opencl_in_stack() or bh_info.is_cuda_in_stack()

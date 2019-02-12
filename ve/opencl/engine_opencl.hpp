@@ -58,8 +58,7 @@ private:
     const bool autotuner;
 
     // Returns the global and local work OpenCL ranges based on the 'thread_stack'
-    std::pair<cl::NDRange, cl::NDRange> NDRanges(const std::vector<uint64_t> &thread_stack, bool segment=false) const;
-    /* std::pair<cl::NDRange, cl::NDRange> NDRanges(const std::vector<uint64_t> &thread_stack) const; */
+    std::pair<cl::NDRange, cl::NDRange> NDRanges(const std::vector<uint64_t> &thread_stack) const;
     std::pair<cl::NDRange, cl::NDRange> NDRanges(const std::vector<uint64_t> &thread_stack, uint64_t hash) const;
 
     // A map of allocated buffers on the device

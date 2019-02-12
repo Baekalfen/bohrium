@@ -285,7 +285,7 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
 }
 
 
-pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &thread_stack, bool segment) const {
+pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &thread_stack) const {
     const auto &b = thread_stack;
 
     if (opt_access_pattern == 0){
@@ -323,33 +323,15 @@ pair<cl::NDRange, cl::NDRange> EngineOpenCL::NDRanges(const vector<uint64_t> &th
                 return make_pair(cl::NDRange(gsize_and_lsize.first), cl::NDRange(gsize_and_lsize.second));
             }
             case 2: {
-                pair<uint32_t, uint32_t> gsize_and_lsize_x;
-                pair<uint32_t, uint32_t> gsize_and_lsize_y;
-                if (segment) {
-                    gsize_and_lsize_x = work_ranges(1, b[0]);
-                    gsize_and_lsize_y = work_ranges(128, b[1]);
-                }
-                else {
-                    gsize_and_lsize_x = work_ranges(work_group_size_1dx, b[0]);
-                    gsize_and_lsize_y = work_ranges(1, b[1]);
-                }
+                const auto gsize_and_lsize_x = work_ranges(work_group_size_1dx, b[0]);
+                const auto gsize_and_lsize_y = work_ranges(1, b[1]);
                 return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first),
                                  cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second));
             }
             case 3: {
-                pair<uint32_t, uint32_t> gsize_and_lsize_x;
-                pair<uint32_t, uint32_t> gsize_and_lsize_y;
-                pair<uint32_t, uint32_t> gsize_and_lsize_z;
-                if (segment) {
-                    gsize_and_lsize_x = work_ranges(1, b[0]);
-                    gsize_and_lsize_y = work_ranges(2, b[1]);
-                    gsize_and_lsize_z = work_ranges(64, b[2]);
-                }
-                else {
-                    gsize_and_lsize_x = work_ranges(work_group_size_1dx, b[0]);
-                    gsize_and_lsize_y = work_ranges(1, b[1]);
-                    gsize_and_lsize_z = work_ranges(1, b[2]);
-                }
+                const auto gsize_and_lsize_x = work_ranges(work_group_size_1dx, b[0]);
+                const auto gsize_and_lsize_y = work_ranges(1, b[1]);
+                const auto gsize_and_lsize_z = work_ranges(1, b[2]);
                 return make_pair(cl::NDRange(gsize_and_lsize_x.first, gsize_and_lsize_y.first, gsize_and_lsize_z.first),
                                  cl::NDRange(gsize_and_lsize_x.second, gsize_and_lsize_y.second, gsize_and_lsize_z.second));
             }
@@ -558,7 +540,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
         ranges = NDRanges(thread_stack2, hash);
     }
     else{
-        ranges = NDRanges(thread_stack2, (sweep_info.size() > 0 and (sweep_info.front().is_segment())));
+        ranges = NDRanges(thread_stack2);
     }
     size_t local_size = ranges.second.local_size();
     /* size_t work_groups = ranges.first.dim(0) / ranges.second.dim(0); // TODO: Multi-dim kernels! */
@@ -600,7 +582,7 @@ void EngineOpenCL::execute(const jitk::SymbolTable &symbols,
                 post_ranges = NDRanges(thread_stack2, hash);
             }
             else{
-                post_ranges = NDRanges(thread_stack2, (sweep_info.size() > 0 and (sweep_info.front().is_segment())));
+                post_ranges = NDRanges(thread_stack2);
             }
             post_sweep = cl::Kernel(program, "scan_2pass_postprocess");
 
@@ -789,7 +771,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             ss << "#define SCRATCHPAD_MEM 1024\n"; // We cannot allocate local memory, if the size isn't static. This should be the max work-group size.
         }
         else {
-            const auto local_range = NDRanges(thread_stack, (sweep_info.size() > 0 and (sweep_info.front().is_segment()))).second;
+            const auto local_range = NDRanges(thread_stack).second;
             ss << "#define KERNEL_" << local_range.dimensions() << "D\n";
             assert ((!sweep_info.back().is_scalar()) || (local_range.dimensions() == 1 && sweep_info.back().is_scalar())); // Don't allow multi-dim before we are ready
 
@@ -956,13 +938,13 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
 
 
             bool inject_seg_reduce = false;
-            /* for (unsigned int i=0; i < sweep_info.size(); ++i) { */
-            /*     if (sweep_info[i].is_segment() && (sweep_info[i].sweep_axis() == thread_stack.size())){ */
-            /*         inject_seg_reduce = true; */
-            /*         break; */
-            /*     } */
-            /* } */
-            /* inject_seg_reduce &= sweep_info.size() > 0 && sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192; */
+            for (unsigned int i=0; i < sweep_info.size(); ++i) {
+                if (sweep_info[i].is_segment() && (sweep_info[i].sweep_axis() == thread_stack.size())){
+                    inject_seg_reduce = true;
+                    break;
+                }
+            }
+            inject_seg_reduce &= sweep_info.size() > 0 && sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192;
 
             size_t thrdstack = thread_stack.size();
             size_t dims = thread_stack.size();

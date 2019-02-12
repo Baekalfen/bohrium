@@ -207,17 +207,16 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                         const bh_instruction instr = *b.getInstr();
 
                         // Comment out reduction inside segmented reduction
-                        /* if (bh_opcode_is_reduction(instr.opcode) && */
-                        /*         kernel.isInnermost() && */
-                        /*         bh_metasweep(b.rank(), 0, instr).is_segment() && */
-                        /*         sweep_info.size() > 0 && */
-                        /*         sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192 */
-                        /*         ){ */
-                        /*     out << "// "; */
-                        /*     write_instr(scope, *b.getInstr(), out, true); */
-                        /* } */
-                        /* else */
-                        if(lookups.size() == 0) {
+                        if (bh_opcode_is_reduction(instr.opcode) &&
+                                kernel.isInnermost() &&
+                                bh_metasweep(b.rank(), 0, instr).is_segment() &&
+                                sweep_info.size() > 0 &&
+                                sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192
+                                ){
+                            out << "// ";
+                            write_instr(scope, *b.getInstr(), out, true);
+                        }
+                        else if(lookups.size() == 0) {
                             out << "if (!redundant) {";
                             write_instr(scope, *b.getInstr(), out, true);
                             out << "}";
@@ -233,12 +232,12 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
 
                 // Check if there exist a segmented reduction, and if we are in the right rank.
                 size_t parallel_rank = thread_stack.size()-1;
-                bool inject_seg_reduce = false;
-                    /* (sweep_info.size() > 0) && */
-                    /* (sweep_info.front().sweep_axis() == b.rank()) && */
-                    /* sweep_info.front().is_segment() && */
-                    /* next_rank.isInnermost() && */
-                    /* sweep_info.front().left_operand.shape.begin()[parallel_rank] < 8192; // Hack to try avoid overcommiting local memory */
+                bool inject_seg_reduce =
+                    (sweep_info.size() > 0) &&
+                    (sweep_info.front().sweep_axis() == b.rank()) &&
+                    sweep_info.front().is_segment() &&
+                    next_rank.isInnermost() &&
+                    sweep_info.front().left_operand.shape.begin()[parallel_rank] < 8192; // Hack to try avoid overcommiting local memory
 
 
                 // TODO: Detect if the seg_reduce doesn't use global memory. If it doesn't, skip the injection

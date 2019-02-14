@@ -206,195 +206,195 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                         util::spaces(out, 4 + b.rank() * 4);
                         const bh_instruction instr = *b.getInstr();
 
-                        // Comment out reduction inside segmented reduction
-                        if (bh_opcode_is_reduction(instr.opcode) &&
-                                kernel.isInnermost() &&
-                                bh_metasweep(b.rank(), 0, instr).is_segment() &&
-                                sweep_info.size() > 0 &&
-                                sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192
-                                ){
-                            out << "// ";
+                        /* // Comment out reduction inside segmented reduction */
+                        /* if (bh_opcode_is_reduction(instr.opcode) && */
+                        /*         kernel.isInnermost() && */
+                        /*         bh_metasweep(b.rank(), 0, instr).is_segment() && */
+                        /*         sweep_info.size() > 0 && */
+                        /*         sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192 */
+                        /*         ){ */
+                        /*     out << "// "; */
+                        /*     write_instr(scope, *b.getInstr(), out, true); */
+                        /* } */
+                        /* else if(lookups.size() == 0) { */
+                        /*     out << "if (!redundant) {"; */
+                        /*     write_instr(scope, *b.getInstr(), out, true); */
+                        /*     out << "}"; */
+                        /* } */
+                        /* else { */
                             write_instr(scope, *b.getInstr(), out, true);
-                        }
-                        else if(lookups.size() == 0) {
-                            out << "if (!redundant) {";
-                            write_instr(scope, *b.getInstr(), out, true);
-                            out << "}";
-                        }
-                        else {
-                            write_instr(scope, *b.getInstr(), out, true);
-                        }
+                        /* } */
                         out << "\n";
                     }
                 }
             } else {
                 const LoopB &next_rank = b.getLoop();
 
-                // Check if there exist a segmented reduction, and if we are in the right rank.
-                size_t parallel_rank = thread_stack.size()-1;
-                bool inject_seg_reduce =
-                    (sweep_info.size() > 0) &&
-                    (sweep_info.front().sweep_axis() == b.rank()) &&
-                    sweep_info.front().is_segment() &&
-                    next_rank.isInnermost() &&
-                    sweep_info.front().left_operand.shape.begin()[parallel_rank] < 8192; // Hack to try avoid overcommiting local memory
+                /* // Check if there exist a segmented reduction, and if we are in the right rank. */
+                /* size_t parallel_rank = thread_stack.size()-1; */
+                /* bool inject_seg_reduce = */
+                /*     (sweep_info.size() > 0) && */
+                /*     (sweep_info.front().sweep_axis() == b.rank()) && */
+                /*     sweep_info.front().is_segment() && */
+                /*     next_rank.isInnermost() && */
+                /*     sweep_info.front().left_operand.shape.begin()[parallel_rank] < 8192; // Hack to try avoid overcommiting local memory */
 
 
                 // TODO: Detect if the seg_reduce doesn't use global memory. If it doesn't, skip the injection
 
-                // NOTE: If we create a config for it, segmented reductions can be disabled in the following if-statement:
-                if (inject_seg_reduce){
-                    vector<bh_metasweep> sweeps = {}; // The unique sweeps to handle
-                    vector<bh_metasweep> _sweeps = {}; // All sweeps in rank to handle write_back -- Calculated once, written to two different places.
-                    size_t desired_size = sweep_info.front().left_operand.shape.back(); // Avoid merging 2 different ranks by mistake
-                    for (bh_metasweep &s: sweep_info) {
-                        if (s.rank == next_rank.rank && s.is_segment() && s.left_operand.shape.back() == desired_size){
-                            int base_id = symbols.baseID(s.left_operand.base);
-                            s.base_id = base_id; // To assure cache consistency
-                            sweeps.push_back(s);
-                            _sweeps.push_back(s);
-                        }
-                    }
-                    std::sort (sweeps.begin(), sweeps.end()); // Assures cache consistency
-                    auto last = std::unique(sweeps.begin(), sweeps.end()); // To remove redundancy/reallocation
-                    sweeps.erase(last, sweeps.end());
+                /* // NOTE: If we create a config for it, segmented reductions can be disabled in the following if-statement: */
+                /* if (inject_seg_reduce){ */
+                /*     vector<bh_metasweep> sweeps = {}; // The unique sweeps to handle */
+                /*     vector<bh_metasweep> _sweeps = {}; // All sweeps in rank to handle write_back -- Calculated once, written to two different places. */
+                /*     size_t desired_size = sweep_info.front().left_operand.shape.back(); // Avoid merging 2 different ranks by mistake */
+                /*     for (bh_metasweep &s: sweep_info) { */
+                /*         if (s.rank == next_rank.rank && s.is_segment() && s.left_operand.shape.back() == desired_size){ */
+                /*             int base_id = symbols.baseID(s.left_operand.base); */
+                /*             s.base_id = base_id; // To assure cache consistency */
+                /*             sweeps.push_back(s); */
+                /*             _sweeps.push_back(s); */
+                /*         } */
+                /*     } */
+                /*     std::sort (sweeps.begin(), sweeps.end()); // Assures cache consistency */
+                /*     auto last = std::unique(sweeps.begin(), sweeps.end()); // To remove redundancy/reallocation */
+                /*     sweeps.erase(last, sweeps.end()); */
 
-                    size_t indent_level = 0;
-                    INDENT; out << "{ // Segmented reduction injected.\n";
-                    indent_level = 1;
+                /*     size_t indent_level = 0; */
+                /*     INDENT; out << "{ // Segmented reduction injected.\n"; */
+                /*     indent_level = 1; */
 
-                    // Max length is max segments pr. workgroup (not alot).
-                    for (const bh_metasweep s: sweeps) {
-                        INDENT; out << "__local volatile " << writeType(s.type()) << " write_back" << s.base_id << "[" << s.left_operand.shape.begin()[parallel_rank] << "];\n";
-                        INDENT; out << "__local volatile " << writeType(s.type()) << " _a" << s.base_id << "[SCRATCHPAD_MEM];\n";
-                    }
+                /*     // Max length is max segments pr. workgroup (not alot). */
+                /*     for (const bh_metasweep s: sweeps) { */
+                /*         INDENT; out << "__local volatile " << writeType(s.type()) << " write_back" << s.base_id << "[" << s.left_operand.shape.begin()[parallel_rank] << "];\n"; */
+                /*         INDENT; out << "__local volatile " << writeType(s.type()) << " _a" << s.base_id << "[SCRATCHPAD_MEM];\n"; */
+                /*     } */
 
-                    INDENT; out << "size_t lid = flat_local_id;\n";
+                /*     INDENT; out << "size_t lid = flat_local_id;\n"; */
 
-                    INDENT; out << "size_t size = " << sweeps.front().left_operand.shape.back() << ";\n";
-                    INDENT; out << "size_t segment_size = round_up_power2(size);\n";
+                /*     INDENT; out << "size_t size = " << sweeps.front().left_operand.shape.back() << ";\n"; */
+                /*     INDENT; out << "size_t segment_size = round_up_power2(size);\n"; */
 
-                    INDENT; out << "const size_t increment_size = (segment_size < wavefront_size ? segment_size : wavefront_size);\n";
-                    INDENT; out << "size_t sid = lid % increment_size; // Internal segment thread ID\n";
+                /*     INDENT; out << "const size_t increment_size = (segment_size < wavefront_size ? segment_size : wavefront_size);\n"; */
+                /*     INDENT; out << "size_t sid = lid % increment_size; // Internal segment thread ID\n"; */
 
-                    // With 128 work-group size, this is between 4 and 64. The following loop will run between 32 to 2 times respectively.
-                    INDENT; out << "const size_t segments_per_workgroup = DIM1 / increment_size;\n"; // TODO: This is not right! Hangs at segment_size > 128
+                /*     // With 128 work-group size, this is between 4 and 64. The following loop will run between 32 to 2 times respectively. */
+                /*     INDENT; out << "const size_t segments_per_workgroup = DIM1 / increment_size;\n"; // TODO: This is not right! Hangs at segment_size > 128 */
 
-                    INDENT; out << "// For each segment\n";
-                    INDENT; out << "for (size_t segment_id = (lid/increment_size); segment_id < " << sweeps.front().left_operand.shape.begin()[parallel_rank] << "; segment_id += segments_per_workgroup){\n";
+                /*     INDENT; out << "// For each segment\n"; */
+                /*     INDENT; out << "for (size_t segment_id = (lid/increment_size); segment_id < " << sweeps.front().left_operand.shape.begin()[parallel_rank] << "; segment_id += segments_per_workgroup){\n"; */
 
-                    for (const bh_metasweep s: sweeps) {
-                        INDENT; out << "    " << writeType(s.type()) << " acc" << s.base_id << " = ";
-                        jitk::sweep_identity(s.opcode, s.type()).pprint(out, true);
-                        out << ";\n";
-                    }
+                /*     for (const bh_metasweep s: sweeps) { */
+                /*         INDENT; out << "    " << writeType(s.type()) << " acc" << s.base_id << " = "; */
+                /*         jitk::sweep_identity(s.opcode, s.type()).pprint(out, true); */
+                /*         out << ";\n"; */
+                /*     } */
 
-                    INDENT; out << "    // Read in data\n";
-                    // Offset for each wavefront at a contigous, oversized segment. Has to work once, multiple times, and smaller than wavefront sizes.\n";
-                    INDENT; out << "    for (int j=sid; j < size; j += increment_size) {\n";
+                /*     INDENT; out << "    // Read in data\n"; */
+                /*     // Offset for each wavefront at a contigous, oversized segment. Has to work once, multiple times, and smaller than wavefront sizes.\n"; */
+                /*     INDENT; out << "    for (int j=sid; j < size; j += increment_size) {\n"; */
 
-                    size_t dims = sweeps.front().left_operand.ndim;
-                    INDENT; out << "        const ulong i" << parallel_rank << " = segment_id;\n";
-                    INDENT; out << "        const ulong i" << dims-1 << " = j;\n";
+                /*     size_t dims = sweeps.front().left_operand.ndim; */
+                /*     INDENT; out << "        const ulong i" << parallel_rank << " = segment_id;\n"; */
+                /*     INDENT; out << "        const ulong i" << dims-1 << " = j;\n"; */
 
-                    vector<bh_view> wanted_lookups = {};
-                    for (const bh_metasweep s: sweeps) {
-                        wanted_lookups.push_back(s.left_operand);
-                    }
-                    vector<string> returned_lookups = writeBlock(symbols, &scope, next_rank, thread_stack, opencl, out, sweep_info, parallelize_rank, wanted_lookups);
-                    out << "//";
-                    for (std::string name: returned_lookups) {
-                        out << " " << name;
-                    }
-                    out << "\n";
+                /*     vector<bh_view> wanted_lookups = {}; */
+                /*     for (const bh_metasweep s: sweeps) { */
+                /*         wanted_lookups.push_back(s.left_operand); */
+                /*     } */
+                /*     vector<string> returned_lookups = writeBlock(symbols, &scope, next_rank, thread_stack, opencl, out, sweep_info, parallelize_rank, wanted_lookups); */
+                /*     out << "//"; */
+                /*     for (std::string name: returned_lookups) { */
+                /*         out << " " << name; */
+                /*     } */
+                /*     out << "\n"; */
 
-                    for (size_t i=0; i<sweeps.size(); i++) {
-                        const bh_metasweep s = sweeps[i];
-                        string &var = returned_lookups[i];
-                        std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); }
+                /*     for (size_t i=0; i<sweeps.size(); i++) { */
+                /*         const bh_metasweep s = sweeps[i]; */
+                /*         string &var = returned_lookups[i]; */
+                /*         std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); } */
 
-                        INDENT; out << "        " << acc_id<< " = ";
-                        s.write_op(out, acc_id, var);
-                        out << ";\n";
-                    }
-                    INDENT; out << "    }\n";
+                /*         INDENT; out << "        " << acc_id<< " = "; */
+                /*         s.write_op(out, acc_id, var); */
+                /*         out << ";\n"; */
+                /*     } */
+                /*     INDENT; out << "    }\n"; */
 
-                    for (int i=0; i<sweeps.size(); i++) {
-                        const bh_metasweep s = sweeps[i];
-                        string &var = returned_lookups[i];
-                        std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); }
+                /*     for (int i=0; i<sweeps.size(); i++) { */
+                /*         const bh_metasweep s = sweeps[i]; */
+                /*         string &var = returned_lookups[i]; */
+                /*         std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); } */
 
-                        INDENT; out << "    _a" << s.base_id << "[lid] = " << acc_id << ";\n";
-                    }
+                /*         INDENT; out << "    _a" << s.base_id << "[lid] = " << acc_id << ";\n"; */
+                /*     } */
 
-                    INDENT; out << "    // Reduce segment\n";
-                    INDENT; out << "    {\n";
-                    INDENT; out << "    bool running = ((sid%2) == 0);\n";
-                    INDENT; out << "    for (size_t i=1; i<=increment_size/2; i<<=1){\n";
-                    INDENT; out << "        if (running){\n";
-                    INDENT; out << "            running = (sid%(i<<2) == 0);\n";
-                    for (int i=0; i<sweeps.size(); i++) {
-                        const bh_metasweep s = sweeps[i];
-                        std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); }
+                /*     INDENT; out << "    // Reduce segment\n"; */
+                /*     INDENT; out << "    {\n"; */
+                /*     INDENT; out << "    bool running = ((sid%2) == 0);\n"; */
+                /*     INDENT; out << "    for (size_t i=1; i<=increment_size/2; i<<=1){\n"; */
+                /*     INDENT; out << "        if (running){\n"; */
+                /*     INDENT; out << "            running = (sid%(i<<2) == 0);\n"; */
+                /*     for (int i=0; i<sweeps.size(); i++) { */
+                /*         const bh_metasweep s = sweeps[i]; */
+                /*         std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); } */
 
-                        INDENT; out << "            " << acc_id << " = ";
-                        s.write_op(out, acc_id, "_a" + to_string(s.base_id) + "[lid+i]");
-                        out << ";\n";
-                        INDENT; out << "            _a" << s.base_id << "[lid] = " << acc_id << ";\n";
-                    }
-                    INDENT; out << "        }\n";
-                    INDENT; out << "    }\n";
+                /*         INDENT; out << "            " << acc_id << " = "; */
+                /*         s.write_op(out, acc_id, "_a" + to_string(s.base_id) + "[lid+i]"); */
+                /*         out << ";\n"; */
+                /*         INDENT; out << "            _a" << s.base_id << "[lid] = " << acc_id << ";\n"; */
+                /*     } */
+                /*     INDENT; out << "        }\n"; */
+                /*     INDENT; out << "    }\n"; */
 
-                    // Writeback to result array. Saves barriers at expense of some local memory, compared calling barrier now, and fetching across wavefronts.
-                    INDENT; out << "    if (sid == 0){\n";
-                    for (int i=0; i<sweeps.size(); i++) {
-                        const bh_metasweep s = sweeps[i];
-                        std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); }
+                /*     // Writeback to result array. Saves barriers at expense of some local memory, compared calling barrier now, and fetching across wavefronts. */
+                /*     INDENT; out << "    if (sid == 0){\n"; */
+                /*     for (int i=0; i<sweeps.size(); i++) { */
+                /*         const bh_metasweep s = sweeps[i]; */
+                /*         std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); } */
 
-                        INDENT; out << "        write_back" << s.base_id << "[segment_id] = " << acc_id << ";\n";
-                    }
-                    INDENT; out << "    }\n";
-                    INDENT; out << "    }\n";
+                /*         INDENT; out << "        write_back" << s.base_id << "[segment_id] = " << acc_id << ";\n"; */
+                /*     } */
+                /*     INDENT; out << "    }\n"; */
+                /*     INDENT; out << "    }\n"; */
 
-                    INDENT; out << "}\n";
-                    INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n";
-                    /* if (b.rank()-1 > (int)parallelize_rank || ((int)b.rank())-3 > 0){ */
-                    /*     out << "if (redundant) {continue;}\n"; */
-                    /* } */
-                    /* else{ */
-                    /*     out << "if (redundant) {return;}\n"; */
-                    /* } */
+                /*     INDENT; out << "}\n"; */
+                /*     INDENT; out << "barrier(CLK_LOCAL_MEM_FENCE); // Synchronize before closing, so write_back access is valid;\n"; */
+                /*     /1* if (b.rank()-1 > (int)parallelize_rank || ((int)b.rank())-3 > 0){ *1/ */
+                /*     /1*     out << "if (redundant) {continue;}\n"; *1/ */
+                /*     /1* } *1/ */
+                /*     /1* else{ *1/ */
+                /*     /1*     out << "if (redundant) {return;}\n"; *1/ */
+                /*     /1* } *1/ */
 
-                    // Handling write-back to Bohriums scalar replacement
-                    for (int i=0; i<sweeps.size(); i++) {
-                        const bh_metasweep s = sweeps[i];
-                        string &var = returned_lookups[i];
-                        std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); }
+                /*     // Handling write-back to Bohriums scalar replacement */
+                /*     for (int i=0; i<sweeps.size(); i++) { */
+                /*         const bh_metasweep s = sweeps[i]; */
+                /*         string &var = returned_lookups[i]; */
+                /*         std::string acc_id; { std::stringstream t; t << "acc" << s.base_id; acc_id = t.str(); } */
 
-                        for (const bh_metasweep _s: _sweeps){
-                            if (_s.base_id == s.base_id){
-                                const bh_view &view = _s.right_operand;
-                                INDENT;
-                                scope.getName(view, out);
-                                if (scope.isArray(view)) {
-                                    write_array_subscription(scope, view, out);
-                                }
-                                out << " = write_back" << s.base_id << "[lid];\n";
-                            }
-                        }
-                    }
+                /*         for (const bh_metasweep _s: _sweeps){ */
+                /*             if (_s.base_id == s.base_id){ */
+                /*                 const bh_view &view = _s.right_operand; */
+                /*                 INDENT; */
+                /*                 scope.getName(view, out); */
+                /*                 if (scope.isArray(view)) { */
+                /*                     write_array_subscription(scope, view, out); */
+                /*                 } */
+                /*                 out << " = write_back" << s.base_id << "[lid];\n"; */
+                /*             } */
+                /*         } */
+                /*     } */
 
-                    indent_level = 0;
-                    INDENT; out << "}\n";
-                }
-                else{
+                /*     indent_level = 0; */
+                /*     INDENT; out << "}\n"; */
+                /* } */
+                /* else{ */
                     util::spaces(out, 4 + b.rank() * 4);
                     loopHeadWriter(symbols, scope, b.getLoop(), thread_stack, out, parallelize_rank);
                     writeBlock(symbols, &scope, b.getLoop(), thread_stack, opencl, out, sweep_info, parallelize_rank);
                     util::spaces(out, 4 + b.rank() * 4);
                     out << "}\n";
 
-                    out << "// " << b.rank() << " " << parallelize_rank << endl;
+                    /* out << "// " << b.rank() << " " << parallelize_rank << endl; */
                     /* if (b.rank()-1 > (int)parallelize_rank || ((int)b.rank())-3 > 0){ */
                     /*     util::spaces(out, 4 + b.rank() * 4); */
                     /*     out << "if (redundant) {continue;}\n"; */
@@ -403,7 +403,7 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
                     /*     util::spaces(out, 4 + b.rank() * 4); */
                     /*     out << "if (redundant) {return;}\n"; */
                     /* } */
-                }
+                /* } */
             }
         }
     } else {
@@ -438,9 +438,9 @@ vector<string> Engine::writeBlock(const SymbolTable &symbols,
     // Let's copy the scalar replaced reduction outputs back to the original array
     for (const bh_view *view: scalar_replaced_to_write_back) {
         util::spaces(out, 8 + kernel.rank * 4);
-        if (opencl){
-            out << "if (!redundant) ";
-        }
+        /* if (opencl){ */
+        /*     out << "if (!redundant) "; */
+        /* } */
         out << "a" << symbols.baseID(view->base);
         write_array_subscription(scope, *view, out, true);
         out << " = ";

@@ -51,6 +51,7 @@ struct bh_metasweep {
     }
 
     bool is_segment() const {
+        return false;
         return
             bh_opcode_is_reduction(opcode) &&
             (left_operand.stride[left_operand.ndim-1] == 1) && // Check stride. Segments are only for inputs with a stride of 1

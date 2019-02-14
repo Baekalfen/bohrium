@@ -820,18 +820,18 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
         ss << "#define wavefront_size 64\n";
         ss << "#endif\n";
 
-        if (sweep_info.front().is_segment()) {
-            ss << "//Is segment!\n";
-            ss << "inline size_t round_up_power2(size_t number){\n";
-            ss << "    // https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2\n";
-            ss << "    number -= 1;\n";
-            ss << "    number |= number >> 1;\n";
-            ss << "    number |= number >> 2;\n";
-            ss << "    number |= number >> 4;\n";
-            ss << "    number += 1;\n";
-            ss << "    return number;\n";
-            ss << "}\n";
-        }
+        /* if (sweep_info.front().is_segment()) { */
+        /*     ss << "//Is segment!\n"; */
+        /*     ss << "inline size_t round_up_power2(size_t number){\n"; */
+        /*     ss << "    // https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2\n"; */
+        /*     ss << "    number -= 1;\n"; */
+        /*     ss << "    number |= number >> 1;\n"; */
+        /*     ss << "    number |= number >> 2;\n"; */
+        /*     ss << "    number |= number >> 4;\n"; */
+        /*     ss << "    number += 1;\n"; */
+        /*     ss << "    return number;\n"; */
+        /*     ss << "}\n"; */
+        /* } */
 
         if (sweep_info.back().is_scalar()) {
             ss << "#define NEUTRAL ";
@@ -937,37 +937,37 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
             }
 
 
-            bool inject_seg_reduce = false;
-            for (unsigned int i=0; i < sweep_info.size(); ++i) {
-                if (sweep_info[i].is_segment() && (sweep_info[i].sweep_axis() == thread_stack.size())){
-                    inject_seg_reduce = true;
-                    break;
-                }
-            }
-            inject_seg_reduce &= sweep_info.size() > 0 && sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192;
+            /* bool inject_seg_reduce = false; */
+            /* for (unsigned int i=0; i < sweep_info.size(); ++i) { */
+            /*     if (sweep_info[i].is_segment() && (sweep_info[i].sweep_axis() == thread_stack.size())){ */
+            /*         inject_seg_reduce = true; */
+            /*         break; */
+            /*     } */
+            /* } */
+            /* inject_seg_reduce &= sweep_info.size() > 0 && sweep_info.front().left_operand.shape.begin()[thread_stack.size()-1] < 8192; */
 
-            size_t thrdstack = thread_stack.size();
-            size_t dims = thread_stack.size();
-            size_t gpgpu_ranks = 3;
-            size_t for_count = std::max(0, ((int)thrdstack)-((int)gpgpu_ranks));
-            if (inject_seg_reduce){
-                const bh_metasweep sweep = sweep_info.front();
-                // Header when injecting seg-reduce
-                size_t parallel_rank = thread_stack.size()-1;
+            /* size_t thrdstack = thread_stack.size(); */
+            /* size_t dims = thread_stack.size(); */
+            /* size_t gpgpu_ranks = 3; */
+            /* size_t for_count = std::max(0, ((int)thrdstack)-((int)gpgpu_ranks)); */
+            /* if (inject_seg_reduce){ */
+            /*     const bh_metasweep sweep = sweep_info.front(); */
+            /*     // Header when injecting seg-reduce */
+            /*     size_t parallel_rank = thread_stack.size()-1; */
 
-                util::spaces(ss, 4);
-                ss << "if (";
-                for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
-                    ss << "(g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") || ";
-                }
-                ss << "false){\n";
+            /*     util::spaces(ss, 4); */
+            /*     ss << "if ("; */
+            /*     for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){ */
+            /*         ss << "(g" << axis_lowest_stride-i << " >= " << thread_stack[axis_lowest_stride-i] << ") || "; */
+            /*     } */
+            /*     ss << "false){\n"; */
 
-                util::spaces(ss, 8);
-                ss << "redundant = true;\n";
-                util::spaces(ss, 4);
-                ss << "}\n";
-            }
-            else{
+            /*     util::spaces(ss, 8); */
+            /*     ss << "redundant = true;\n"; */
+            /*     util::spaces(ss, 4); */
+            /*     ss << "}\n"; */
+            /* } */
+            /* else{ */
                 // Regular header
                 for (int i=0; i<std::min(thread_stack.size(), (size_t) opt_access_pattern); i++){
                     util::spaces(ss, 4);
@@ -980,7 +980,7 @@ void EngineOpenCL::writeKernel(const jitk::LoopB &kernel,
                         ss << "return; } // Prevent overflow\n";
                     }
                 }
-            }
+            /* } */
         }
         ss << "\n";
     }
